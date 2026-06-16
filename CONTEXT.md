@@ -115,6 +115,13 @@ Prtracker/
         │   ├── mipmap-anydpi-v26/
         │   │   ├── ic_launcher.xml           # Adaptive icon definition
         │   │   └── ic_launcher_round.xml     # Adaptive round icon definition
+        │   ├── raw/                           # Audio assets for mascot voice lines
+        │   │   ├── mascot_welcome.mp3        # Welcome back voice line
+        │   │   ├── speech_1.mp3              # "Systems fully operational..."
+        │   │   ├── speech_2.mp3              # "The weights don't stand a chance..."
+        │   │   ├── speech_3.mp3              # "Up and at 'em, Champion!..."
+        │   │   ├── speech_4.mp3              # "Target locked: New Personal Records..."
+        │   │   └── speech_5.mp3              # "No hesitation. No retreat!..."
         │   └── xml/
         │       ├── backup_rules.xml          # Auto-generated backup config
         │       ├── data_extraction_rules.xml # Auto-generated data extraction config
@@ -306,6 +313,7 @@ data class AppSettings(
     val soundEnabled: Boolean = true,         // Whether UI sound effects are enabled
     val soundVolume: Float = 0.5f,            // Sound effects volume (0.0 - 1.0)
     val hapticEnabled: Boolean = true,         // Whether haptic feedback is enabled
+    val speechesEnabled: Boolean = true,      // Whether mascot voice lines are enabled
     val appearance: AppearanceSettings = AppearanceSettings()  // Color customization settings
 )
 ```
@@ -619,7 +627,7 @@ WorkoutSessionScreen ──FINISH──→ logs all completed sets as individual
 WorkoutSessionScreen ──back/leave──→ auto-pauses workout (DisposableEffect onDispose), preserves session for resume
 ```
 
-Bottom navigation bar is visible on `home`, `dashboard`, `presets`, `goals`, `weight`, `calendar`, and `settings` routes. It is hidden on `live_run`, `workout_session`, and other detail routes. FAB is visible on `dashboard` and `weight` screens.
+Bottom navigation bar is visible on `home`, `dashboard`, `presets`, `goals`, `weight`, `calendar`, `settings`, and `preset_detail/{presetId}` routes. It is hidden on `live_run`, `workout_session`, and other detail routes. FAB is visible on `dashboard` and `weight` screens.
 
 ---
 ## 7. Design System
@@ -771,6 +779,7 @@ val TierSystemOverride = Color(0xFFB026FF)  // Neon purple (same as SuccessPurpl
 - **"APPEARANCE" button:** Clickable `GlowingCard` with palette icon that navigates to `AppearanceScreen` for color customization. Uses `appearance.systemAccentColor` for the icon tint.
 - **"NOTIFICATIONS" button:** Clickable `GlowingCard` with bell icon that navigates to `NotificationSettingsScreen`. Positioned immediately below the APPEARANCE button.
 - **Haptic feedback toggle:** Switch inside a `GlowingCard`. Reads/writes `appSettings.hapticEnabled` field through `viewModel.toggleHaptic()`. Persisted to JSON via `AppSettings` — survives app restarts.
+- **Mascot speech toggle:** Switch inside a `GlowingCard`. Reads/writes `appSettings.speechesEnabled` field through `viewModel.toggleSpeeches()`. Controls whether the HomeScreen robot mascot plays voice lines on tab entry.
 - **Weight unit toggle:** Two pill buttons ("KG" / "LBS") inside a `GlowingCard`. Reads/writes the `weightUnit` field in `AppSettings` via `viewModel.setWeightUnit()`. When changing to "LBS", all weight values in WeightScreen are multiplied by 2.20462; the stored JSON always uses kilograms.
 - **Target weight field:** Optional `OutlinedTextField` to set a target body weight. When set, a horizontal dashed green line appears on the WeightScreen chart at the target value (auto-converted to current display unit).
 - **"EXPORT DATA" button:** Calls `exportToDownloads(context)` which copies `prs.json` to the Downloads folder using `MediaStore.Downloads` (API 29+) or direct file copy (older). Shows success dialog.
@@ -1025,7 +1034,7 @@ val TierSystemOverride = Color(0xFFB026FF)  // Neon purple (same as SuccessPurpl
   - **"EDIT"** — navigates to `PresetsScreen?editId={preset.id}`, which opens the edit sheet on arrival (calls `navController.navigate("${Routes.PRESETS}?editId=${preset.id}")`). Styled as a `NeonButton` with system accent color.
   - **"DELETE"** — opens confirmation `AlertDialog` with "Delete Preset" title and preset name, two buttons: "CANCEL" (dismiss) and "DELETE" (calls `viewModel.deletePreset(presetId)` then pops back to presets screen). Styled with red accent.
 - **Empty/loading state:** If preset is not found by ID, shows a centered "Preset not found" text.
-- **Navigation:** Accessed via preset card tap or from the preset detail route directly. `showBottomBar` is hidden on this screen because it's a detail view.
+- **Navigation:** Accessed via preset card tap or from the preset detail route directly. The bottom nav bar remains visible on this screen.
 
 ### 8.18 PresetAnalysisScreen
 
@@ -1125,16 +1134,16 @@ val TierSystemOverride = Color(0xFFB026FF)  // Neon purple (same as SuccessPurpl
 ### 8.23 HomeScreen
 
 - **Animated background:** `GridBackground()` composable.
-- **Full-screen Canvas drawing:** A large cyberpunk-style stick figure doing a pull-up on parallel bars, rendered entirely via Canvas with mechanical/robot-themed body segments (rectangular limbs, joint circles, cable-like details).
-- **HUD panels:** Two floating HUD panels drawn on the Canvas — left panel in system accent color with tick marks, right panel in system secondary color with tick marks. Dashed connector lines run from each HUD to the figure's shoulders.
-- **Stats display:** Below the figure, shows:
+- **Robot mascot:** A detailed "CR-47 BIOMECHANICAL UNIT" robot character drawn via Canvas, featuring a flower crown, animated visor, animated mouth (lip-sync effect), and a scanner line sweeping down the figure. The mascot occupies the center of the screen.
+- **Voice lines:** On entry, the mascot speaks a random voice line via `MediaPlayer` from 5 raw audio resources (`speech_1.mp3` through `speech_5.mp3`). A welcome-back voice line (`mascot_welcome.mp3`) plays when the app returns to foreground. Voice lines only play when `appSettings.speechesEnabled` is true. An animated speech bubble appears above the mascot during voice playback. Lifecycle-aware: stops playback on `ON_PAUSE`/`ON_STOP`.
+- **Stats card:** A `GlowingCard` below the mascot displaying:
   - Current streak from `viewModel.currentStreak`
   - Current tier from `viewModel.tierResult` (tier name + number)
-  - Top PR value across all exercises (largest single entry value)
-- **Navigation buttons:** Two styled buttons at the bottom:
-  - "DASHBOARD" — navigates to `DashboardScreen`
-  - "GOALS" — navigates to `GoalsScreen`
-- **Visual styling:** Uses `LocalAppearance.current` colors throughout for the figure, HUD panels, connectors, and joints. Ambient glow circles drawn behind the figure. All rendering uses native Canvas APIs with `Paint` objects cached in `remember {}`.
+  - Total exercise count
+  - "ONLINE" status indicator
+- **System readout text:** Below the stats card, shows two text lines: "ALL SYSTEMS NOMINAL" and "OFFLINE MODE -- DATA SECURED" in small Monospace.
+- **Navigation button:** A single styled "ENTER SYSTEM" button that navigates to `DashboardScreen`.
+- **Visual styling:** Uses `LocalAppearance.current` colors throughout for the mascot, stats card, and button. All rendering uses native Canvas APIs with `Paint` objects cached in `remember {}`.
 - **Behavior:** Acts as an entry point / landing screen. No data collection happens here — reads state passively. Accessible via bottom nav "Home" icon.
 
 ---
@@ -1192,6 +1201,7 @@ Extends `AndroidViewModel(application)` for app context access.
 | `setCalendarDayViewMode(mode)` | Sets how daily values are aggregated ("pr"/"sum"), saves |
 | `setSoundEnabled(enabled)` | Toggles UI sound effects on/off, saves |
 | `setSoundVolume(volume)` | Sets sound effects volume (0.0–1.0), updates `SoundEngine.volume`, saves |
+| `toggleSpeeches(enabled)` | Toggles mascot voice lines on/off, saves |
 | `setMorningReminderTime(hour, minute)` | Changes morning training reminder time, saves |
 | `setEveningReviewTime(hour, minute)` | Changes evening review time, saves |
 | `addWeightEntry(entry)` | Appends to weight entries list + saves |
