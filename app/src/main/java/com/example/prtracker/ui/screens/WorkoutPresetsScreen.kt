@@ -49,6 +49,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -348,11 +349,11 @@ fun WorkoutPresetsScreen(
 
     if (showSheet) {
         ModalBottomSheet(
-            onDismissRequest = {
-                showSheet = false
-                editingPreset = null
-            },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            onDismissRequest = {},
+            sheetState = rememberModalBottomSheetState(
+                skipPartiallyExpanded = true,
+                confirmValueChange = { it != SheetValue.Hidden }
+            ),
             containerColor = Background
         ) {
             PresetFormSheet(
@@ -482,12 +483,16 @@ private fun WorkoutPresetCard(
                 if (preset.exercises.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(8.dp))
                     preset.exercises.forEachIndexed { index, ex ->
-                        val detail = buildString {
-                            append("${ex.sets}x")
-                            if (ex.targetHoldSeconds > 0) {
-                                append("${ex.targetHoldSeconds}s")
-                            } else {
-                                append(ex.targetReps)
+                        val detail = if (ex.isUntilFailure) {
+                            "${ex.sets}x UNTIL FAILURE"
+                        } else {
+                            buildString {
+                                append("${ex.sets}x")
+                                if (ex.targetHoldSeconds > 0) {
+                                    append("${ex.targetHoldSeconds}s")
+                                } else {
+                                    append(ex.targetReps)
+                                }
                             }
                         }
                         Row(
@@ -586,6 +591,7 @@ private fun PresetFormSheet(
     var exType by remember { mutableStateOf("REPS") }
     var exTargetReps by remember { mutableStateOf("") }
     var exTargetHold by remember { mutableStateOf("") }
+    var exUntilFailure by remember { mutableStateOf(false) }
     var exSets by remember { mutableStateOf("3") }
     var exNotes by remember { mutableStateOf("") }
 
@@ -593,8 +599,9 @@ private fun PresetFormSheet(
         if (exName.isBlank()) return
         val exercise = PresetExercise(
             exerciseName = exName.trim(),
-            targetReps = if (exType == "REPS") (exTargetReps.toIntOrNull() ?: 0) else 0,
-            targetHoldSeconds = if (exType == "HOLD") (exTargetHold.toIntOrNull() ?: 0) else 0,
+            targetReps = if (exUntilFailure) 0 else if (exType == "REPS") (exTargetReps.toIntOrNull() ?: 0) else 0,
+            targetHoldSeconds = if (exUntilFailure) 0 else if (exType == "HOLD") (exTargetHold.toIntOrNull() ?: 0) else 0,
+            isUntilFailure = exUntilFailure,
             sets = exSets.toIntOrNull() ?: 3,
             notes = exNotes.trim()
         )
@@ -602,6 +609,7 @@ private fun PresetFormSheet(
         exName = ""
         exTargetReps = ""
         exTargetHold = ""
+        exUntilFailure = false
         exSets = "3"
         exNotes = ""
         showAddExercise = false
@@ -814,6 +822,44 @@ private fun PresetFormSheet(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(40.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .then(
+                                    if (exUntilFailure) Modifier.background(appearance.systemAccentColor.copy(alpha = 0.2f))
+                                    else Modifier.background(Color.Transparent)
+                                )
+                                .border(
+                                    BorderStroke(1.dp, if (exUntilFailure) appearance.systemAccentColor else TextSecondary.copy(alpha = 0.3f)),
+                                    RoundedCornerShape(8.dp)
+                                )
+                                .clickable {
+                                    exUntilFailure = !exUntilFailure
+                                    if (exUntilFailure) {
+                                        exTargetReps = ""
+                                        exTargetHold = ""
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "UNTIL FAILURE",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (exUntilFailure) appearance.systemAccentColor else TextSecondary,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
                     OutlinedTextField(
                         value = exSets,
                         onValueChange = { exSets = it.filter { c -> c.isDigit() } },
@@ -843,6 +889,7 @@ private fun PresetFormSheet(
                         text = "CONFIRM EXERCISE",
                         onClick = { addExercise() },
                         enabled = allExercises.isNotEmpty() && exName.isNotBlank() && (
+                            exUntilFailure ||
                             (exType == "REPS" && (exTargetReps.toIntOrNull() ?: 0) > 0) ||
                             (exType == "HOLD" && (exTargetHold.toIntOrNull() ?: 0) > 0)
                         )
@@ -923,8 +970,9 @@ private fun PresetFormSheet(
                     },
                     enabled = name.isNotBlank() && exercises.isNotEmpty() && exercises.all { ex ->
                         ex.exerciseName.isNotBlank() && ex.sets >= 1 &&
+                        (ex.isUntilFailure ||
                         if (ex.targetHoldSeconds > 0) ex.targetHoldSeconds >= 1
-                        else ex.targetReps >= 1
+                        else ex.targetReps >= 1)
                     }
                 )
             }
@@ -1058,34 +1106,90 @@ private fun EditableExerciseCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            if (isHold) {
-                OutlinedTextField(
-                    value = if (exercise.targetHoldSeconds > 0) exercise.targetHoldSeconds.toString() else "",
-                    onValueChange = { text ->
-                        val v = text.filter { it.isDigit() }.take(5)
-                        onUpdate(index, exercise.copy(targetHoldSeconds = v.toIntOrNull() ?: 0))
-                    },
-                    label = { Text("HOLD SECONDS") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = textFieldColors(appearance),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace)
-                )
+            if (exercise.isUntilFailure) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(40.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(appearance.systemAccentColor.copy(alpha = 0.15f))
+                        .border(
+                            BorderStroke(1.dp, appearance.systemAccentColor.copy(alpha = 0.5f)),
+                            RoundedCornerShape(8.dp)
+                        )
+                        .clickable {
+                            onUpdate(index, exercise.copy(isUntilFailure = false))
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "UNTIL FAILURE",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = appearance.systemAccentColor,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp
+                    )
+                }
             } else {
-                OutlinedTextField(
-                    value = if (exercise.targetReps > 0) exercise.targetReps.toString() else "",
-                    onValueChange = { text ->
-                        val v = text.filter { it.isDigit() }.take(5)
-                        onUpdate(index, exercise.copy(targetReps = v.toIntOrNull() ?: 0))
-                    },
-                    label = { Text("TARGET REPS") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = textFieldColors(appearance),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace)
-                )
+                if (isHold) {
+                    OutlinedTextField(
+                        value = if (exercise.targetHoldSeconds > 0) exercise.targetHoldSeconds.toString() else "",
+                        onValueChange = { text ->
+                            val v = text.filter { it.isDigit() }.take(5)
+                            onUpdate(index, exercise.copy(targetHoldSeconds = v.toIntOrNull() ?: 0))
+                        },
+                        label = { Text("HOLD SECONDS") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = textFieldColors(appearance),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace)
+                    )
+                } else {
+                    OutlinedTextField(
+                        value = if (exercise.targetReps > 0) exercise.targetReps.toString() else "",
+                        onValueChange = { text ->
+                            val v = text.filter { it.isDigit() }.take(5)
+                            onUpdate(index, exercise.copy(targetReps = v.toIntOrNull() ?: 0))
+                        },
+                        label = { Text("TARGET REPS") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = textFieldColors(appearance),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(32.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color.Transparent)
+                        .border(
+                            BorderStroke(1.dp, TextSecondary.copy(alpha = 0.2f)),
+                            RoundedCornerShape(6.dp)
+                        )
+                        .clickable {
+                            onUpdate(index, exercise.copy(
+                                isUntilFailure = true,
+                                targetReps = 0,
+                                targetHoldSeconds = 0
+                            ))
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "UNTIL FAILURE",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary.copy(alpha = 0.6f),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 9.sp
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))

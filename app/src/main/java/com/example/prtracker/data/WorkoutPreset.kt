@@ -8,6 +8,7 @@ data class PresetExercise(
     val exerciseName: String = "",
     val targetReps: Int = 0,
     val targetHoldSeconds: Int = 0,
+    val isUntilFailure: Boolean = false,
     val sets: Int = 3,
     val notes: String = ""
 )

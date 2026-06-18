@@ -294,8 +294,12 @@ private fun SessionExerciseCard(
                     modifier = Modifier.weight(1f)
                 )
                 val doneTotal = progress.completedSets.sumOf { it.value }
-                val totalNeeded = progress.targetValue * progress.totalSets
-                val label = if (progress.isHold) "${doneTotal}s / ${totalNeeded}s" else "$doneTotal / $totalNeeded"
+                val label = if (progress.isUntilFailure) {
+                    "$doneTotal${if (progress.isHold) "s" else ""} total"
+                } else {
+                    val totalNeeded = progress.targetValue * progress.totalSets
+                    if (progress.isHold) "${doneTotal}s / ${totalNeeded}s" else "$doneTotal / $totalNeeded"
+                }
                 Text(
                     text = "$completedCount/${progress.totalSets} sets ($label)",
                     style = MaterialTheme.typography.labelSmall,
@@ -343,7 +347,12 @@ private fun SessionExerciseCard(
                             onValueChange = { inputValue = it.filter { c -> c.isDigit() } },
                             modifier = Modifier.weight(1f).height(56.dp),
                             singleLine = true,
-                            placeholder = { Text(progress.targetValue.toString(), color = TextSecondary.copy(alpha = 0.3f)) },
+                            placeholder = {
+                                Text(
+                                    if (progress.isUntilFailure) "MAX" else progress.targetValue.toString(),
+                                    color = TextSecondary.copy(alpha = 0.3f)
+                                )
+                            },
                             textStyle = MaterialTheme.typography.titleMedium.copy(
                                 fontFamily = FontFamily.Monospace,
                                 textAlign = TextAlign.Center

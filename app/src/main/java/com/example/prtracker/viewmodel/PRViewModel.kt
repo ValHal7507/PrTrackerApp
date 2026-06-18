@@ -275,8 +275,9 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
         val exercises = preset.exercises.map { pe ->
             SessionExerciseProgress(
                 exerciseName = pe.exerciseName,
-                targetValue = if (pe.targetHoldSeconds > 0) pe.targetHoldSeconds else pe.targetReps,
+                targetValue = if (pe.isUntilFailure) 0 else if (pe.targetHoldSeconds > 0) pe.targetHoldSeconds else pe.targetReps,
                 isHold = pe.targetHoldSeconds > 0,
+                isUntilFailure = pe.isUntilFailure,
                 totalSets = pe.sets,
                 completedSets = emptyList()
             )

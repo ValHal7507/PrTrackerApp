@@ -392,7 +392,7 @@ private fun PresetExerciseDetailRow(
                     .padding(horizontal = 8.dp, vertical = 4.dp)
             ) {
                 Text(
-                    text = if (exercise.targetHoldSeconds > 0) "${exercise.targetHoldSeconds}s HOLD" else "${exercise.targetReps} REPS",
+                    text = if (exercise.isUntilFailure) "UNTIL FAILURE" else if (exercise.targetHoldSeconds > 0) "${exercise.targetHoldSeconds}s HOLD" else "${exercise.targetReps} REPS",
                     style = MaterialTheme.typography.labelSmall,
                     color = appearance.systemAccentColor,
                     fontFamily = FontFamily.Monospace,

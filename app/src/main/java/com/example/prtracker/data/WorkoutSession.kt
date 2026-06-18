@@ -12,6 +12,7 @@ data class SessionExerciseProgress(
     val exerciseName: String = "",
     val targetValue: Int = 0,
     val isHold: Boolean = false,
+    val isUntilFailure: Boolean = false,
     val totalSets: Int = 0,
     val completedSets: List<SessionSetEntry> = emptyList()
 )

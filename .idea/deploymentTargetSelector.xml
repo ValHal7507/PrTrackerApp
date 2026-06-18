@@ -4,10 +4,10 @@
     <selectionStates>
       <SelectionState runConfigName="PR tracker">
         <option name="selectionMode" value="DROPDOWN" />
-        <DropdownSelection timestamp="2026-06-16T17:32:14.448340600Z">
+        <DropdownSelection timestamp="2026-06-18T07:53:30.622669400Z">
           <Target type="DEFAULT_BOOT">
             <handle>
-              <DeviceId pluginId="PhysicalDevice" identifier="serial=RZCYA0GABZY" />
+              <DeviceId pluginId="LocalEmulator" identifier="path=C:\Users\val3nt_n\.android\avd\AppTester.avd" />
             </handle>
           </Target>
         </DropdownSelection>
