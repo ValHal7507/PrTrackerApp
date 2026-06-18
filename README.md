@@ -1,5 +1,3 @@
-<<<<<<< HEAD
-
 # PR Tracker
 
 A personal record tracking app for exercises. Log reps, hold times, runs, and body weight — track your progress over time.
