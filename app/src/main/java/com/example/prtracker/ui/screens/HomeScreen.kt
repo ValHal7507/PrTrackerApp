@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -55,6 +56,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.CornerRadius
@@ -70,6 +72,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -84,12 +87,14 @@ import com.example.prtracker.navigation.Routes
 import com.example.prtracker.ui.components.GlowingCard
 import com.example.prtracker.ui.components.GridBackground
 import com.example.prtracker.ui.theme.Background
+import com.example.prtracker.ui.theme.GoalComplete
 import com.example.prtracker.ui.theme.LocalAppearance
 import com.example.prtracker.ui.theme.systemAccentColor
 import com.example.prtracker.ui.theme.systemSecondaryColor
 import com.example.prtracker.ui.theme.Surface
 import com.example.prtracker.ui.theme.TextPrimary
 import com.example.prtracker.ui.theme.TextSecondary
+import com.example.prtracker.data.XpEngine
 import com.example.prtracker.viewmodel.PRViewModel
 import kotlin.math.min
 
@@ -116,6 +121,10 @@ fun HomeScreen(
     val tierResult by viewModel.tierResult.collectAsState()
     val exercises by viewModel.exercises.collectAsState()
     val appSettings by viewModel.appSettings.collectAsState()
+    val totalXp by viewModel.totalXp.collectAsState()
+    val currentLevel by viewModel.currentLevel.collectAsState()
+    val xpInLevel by viewModel.xpInCurrentLevel.collectAsState()
+    val xpToNext by viewModel.xpNeededForLevelUp.collectAsState()
 
     val densityObj = LocalDensity.current
     val text9spPx = with(densityObj) { 9.sp.toPx() }
@@ -932,7 +941,16 @@ fun HomeScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // --- LEVEL PROGRESS CARD ---
+            LevelProgressCard(
+                level = currentLevel,
+                xpInLevel = xpInLevel,
+                xpToNext = xpToNext
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             // --- ENTER SYSTEM BUTTON ---
             Button(
@@ -1005,5 +1023,123 @@ private fun StatColumn(value: String, label: String) {
             style = MaterialTheme.typography.labelSmall,
             color = TextSecondary
         )
+    }
+}
+
+@Composable
+private fun LevelProgressCard(
+    level: Int,
+    xpInLevel: Long,
+    xpToNext: Long,
+    modifier: Modifier = Modifier
+) {
+    val appearance = LocalAppearance.current
+    val accentColor = appearance.systemAccentColor
+    val secondaryColor = appearance.systemSecondaryColor
+    val isMaxLevel = level >= XpEngine.MAX_LEVEL
+    val progress = if (isMaxLevel) 1f else if (xpToNext > 0) (xpInLevel.toFloat() / xpToNext.toFloat()).coerceIn(0f, 1f) else 0f
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress,
+        animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
+        label = "xp_progress"
+    )
+
+    val borderBrush = remember(accentColor, secondaryColor) {
+        Brush.horizontalGradient(listOf(accentColor, secondaryColor))
+    }
+
+    GlowingCard(
+        modifier = modifier.fillMaxWidth(),
+        borderBrush = borderBrush
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "LEVEL",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = TextSecondary,
+                    letterSpacing = 2.sp
+                )
+                if (isMaxLevel) {
+                    Text(
+                        text = "MAX",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontFamily = FontFamily.Monospace,
+                        color = GoalComplete,
+                        fontWeight = FontWeight.Bold
+                    )
+                } else {
+                    Text(
+                        text = "$level",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontFamily = FontFamily.Monospace,
+                        color = accentColor,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(accentColor.copy(alpha = 0.15f))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(animatedProgress)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(
+                            if (isMaxLevel) {
+                                Brush.horizontalGradient(
+                                    colors = listOf(GoalComplete, accentColor)
+                                )
+                            } else {
+                                Brush.horizontalGradient(
+                                    colors = listOf(accentColor, secondaryColor)
+                                )
+                            }
+                        )
+                )
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                if (isMaxLevel) {
+                    Text(
+                        text = "+%,d XP BEYOND MAX".format(xpInLevel),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = GoalComplete,
+                        fontSize = 10.sp
+                    )
+                } else {
+                    Text(
+                        text = "%,d / %,d XP".format(xpInLevel, xpToNext),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = TextSecondary,
+                        fontSize = 10.sp
+                    )
+                }
+            }
+        }
     }
 }

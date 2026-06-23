@@ -43,11 +43,16 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.navigation.NavHostController
+import com.example.prtracker.data.ExerciseDifficulty
 import com.example.prtracker.data.PREntry
 import com.example.prtracker.data.SoundEngine
+import com.example.prtracker.data.parsedDifficulty
 import com.example.prtracker.navigation.Routes
 import com.example.prtracker.ui.components.GlowingCard
 import com.example.prtracker.ui.components.GridBackground
@@ -143,8 +148,34 @@ fun ExerciseDetailScreen(
                         text = exercise.name,
                         style = MaterialTheme.typography.headlineMedium,
                         color = appearance.exerciseAccentColor,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
+
+                    val diffColor = when (exercise.parsedDifficulty()) {
+                        ExerciseDifficulty.EASY -> Color(0xFF00FF85)
+                        ExerciseDifficulty.MEDIUM -> appearance.exerciseAccentColor
+                        ExerciseDifficulty.HARD -> Color(0xFFFF6B00)
+                        ExerciseDifficulty.EXTREME -> Color(0xFFFF003C)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(diffColor.copy(alpha = 0.2f))
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = exercise.difficulty,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = diffColor,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.sp,
+                            maxLines = 1
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
 
                     IconButton(onClick = { showDeleteDialog = true }) {
                         Icon(Icons.Default.Delete, "Delete", tint = appearance.exerciseAccentColor.copy(alpha = 0.6f))

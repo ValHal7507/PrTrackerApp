@@ -66,6 +66,8 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import com.example.prtracker.data.PREntry
 import com.example.prtracker.data.SoundEngine
+import com.example.prtracker.data.XpEngine
+import com.example.prtracker.data.parsedDifficulty
 import com.example.prtracker.navigation.Routes
 import com.example.prtracker.ui.components.GridBackground
 import com.example.prtracker.ui.components.PRCelebrationOverlay
@@ -109,6 +111,7 @@ fun HoldTimerScreen(
 
     val elapsedSeconds = (elapsedMillis / 1000L).toInt()
     val timeString = "%02d:%02d".format(elapsedSeconds / 60, elapsedSeconds % 60)
+    val entryXp = if (elapsedSeconds > 0) XpEngine.xpForEntry(elapsedSeconds, "hold", exercise.parsedDifficulty()) else 0L
 
     val progressSweep = if (targetSeconds > 0) {
         (elapsedSeconds.toFloat() / targetSeconds).coerceAtMost(1f) * 360f
@@ -247,6 +250,16 @@ fun HoldTimerScreen(
                         color = TextSecondary
                     )
                 }
+            }
+
+            if (entryXp > 0L) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "+$entryXp XP",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = GoalComplete,
+                    fontFamily = FontFamily.Monospace
+                )
             }
 
             Spacer(modifier = Modifier.weight(1f))
@@ -451,6 +464,7 @@ fun HoldTimerScreen(
 
         PRCelebrationOverlay(
             visible = showCelebration,
+            xpEarned = entryXp,
             onDismiss = {
                 showCelebration = false
                 navController.popBackStack()

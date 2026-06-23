@@ -25,6 +25,8 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.LazyGridItemInfo
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -48,7 +50,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateMapOf
+
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -64,19 +66,20 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.LayoutCoordinates
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInRoot
+
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.navigation.NavHostController
 import com.example.prtracker.data.Exercise
+import com.example.prtracker.data.ExerciseDifficulty
 import com.example.prtracker.data.RunningPREngine
 import com.example.prtracker.data.SoundEngine
+import com.example.prtracker.data.parsedDifficulty
 import com.example.prtracker.navigation.Routes
 import com.example.prtracker.ui.components.AnimatedRing
 import com.example.prtracker.ui.components.GlowingCard
@@ -146,10 +149,10 @@ fun DashboardScreen(
         buildGridItems(exercises, searchQuery, appearance.pinnedAccentColor)
     }
 
-    val itemPositions = remember { mutableStateMapOf<String, LayoutCoordinates>() }
     var draggingKey by remember { mutableStateOf<String?>(null) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
-    var dragStartPos by remember { mutableStateOf(Offset.Zero) }
+    var dragStartPosInContent by remember { mutableStateOf(Offset.Zero) }
+    var dragItemSize by remember { mutableStateOf(Offset.Zero) }
     var hoverTargetKey by remember { mutableStateOf<String?>(null) }
     val shakeOffset = remember { Animatable(0f) }
     var shakeTrigger by remember { mutableIntStateOf(0) }
@@ -331,15 +334,13 @@ fun DashboardScreen(
                                                         }
                                                 } else Modifier
                                             )
-                                            .onGloballyPositioned { coords ->
-                                                itemPositions[item.key] = coords
-                                            }
                                             .pointerInput(item.key) {
                                                 detectDragGesturesAfterLongPress(
                                                     onDragStart = {
-                                                        val c = itemPositions[item.key]
-                                                        if (c != null) {
-                                                            dragStartPos = c.positionInRoot()
+                                                        val info = listState.layoutInfo.visibleItemsInfo.find { it.key == item.key }
+                                                        if (info != null) {
+                                                            dragStartPosInContent = Offset(info.offset.x.toFloat(), info.offset.y.toFloat())
+                                                            dragItemSize = Offset(info.size.width.toFloat(), info.size.height.toFloat())
                                                         }
                                                         draggingKey = item.key
                                                         dragOffset = Offset.Zero
@@ -351,8 +352,9 @@ fun DashboardScreen(
                                                         hoverTargetKey = findClosestKey(
                                                             draggedKey = item.key,
                                                             offset = dragOffset,
-                                                            startPos = dragStartPos,
-                                                            positions = itemPositions,
+                                                            startPos = dragStartPosInContent,
+                                                            itemSize = dragItemSize,
+                                                            listState = listState,
                                                             items = gridItems,
                                                             pinned = exercise.isPinned
                                                         )
@@ -360,34 +362,28 @@ fun DashboardScreen(
                                                     onDragEnd = {
                                                         try {
                                                             if (draggingKey != null) {
-                                                                val dc = itemPositions[item.key]
-                                                                if (dc != null) {
-                                                                    val targets = itemPositions.entries.toList().filter { entry ->
-                                                                        entry.key != item.key && (gridItems.find { it.key == entry.key } as? GridItem.CardItem)?.exercise?.isPinned == exercise.isPinned
+                                                                val cx = dragStartPosInContent.x + dragOffset.x + dragItemSize.x / 2f
+                                                                val cy = dragStartPosInContent.y + dragOffset.y + dragItemSize.y / 2f
+                                                                var bestKey: String? = null
+                                                                var bestDist = Float.MAX_VALUE
+                                                                for (info in listState.layoutInfo.visibleItemsInfo) {
+                                                                    if (info.key == item.key) continue
+                                                                    val gridItem = gridItems.find { it.key == info.key } as? GridItem.CardItem ?: continue
+                                                                    if (gridItem.exercise.isPinned != exercise.isPinned) continue
+                                                                    val ex = info.offset.x.toFloat() + info.size.width / 2f
+                                                                    val ey = info.offset.y.toFloat() + info.size.height / 2f
+                                                                    val dx = ex - cx
+                                                                    val dy = ey - cy
+                                                                    val d = dx * dx + dy * dy
+                                                                    if (d < bestDist) {
+                                                                        bestDist = d
+                                                                        bestKey = info.key as? String
                                                                     }
-                                                                    val cx = dragStartPos.x + dragOffset.x + dc.size.width / 2f
-                                                                    val cy = dragStartPos.y + dragOffset.y + dc.size.height / 2f
-                                                                    var bestKey: String? = null
-                                                                    var bestDist = Float.MAX_VALUE
-                                                                    for (entry in targets) {
-                                                                        try {
-                                                                            val ep = entry.value.positionInRoot()
-                                                                            val ex = ep.x + entry.value.size.width / 2f
-                                                                            val ey = ep.y + entry.value.size.height / 2f
-                                                                            val dx = ex - cx
-                                                                            val dy = ey - cy
-                                                                            val d = dx * dx + dy * dy
-                                                                            if (d < bestDist) {
-                                                                                bestDist = d
-                                                                                bestKey = entry.key
-                                                                            }
-                                                                        } catch (_: Exception) { }
-                                                                    }
-                                                                    bestKey?.let { targetKey ->
-                                                                        val ti = gridItems.find { it.key == targetKey } as? GridItem.CardItem
-                                                                        if (ti != null) {
-                                                                            viewModel.swapExercises(exercise.id, ti.exercise.id)
-                                                                        }
+                                                                }
+                                                                bestKey?.let { targetKey ->
+                                                                    val ti = gridItems.find { it.key == targetKey } as? GridItem.CardItem
+                                                                    if (ti != null) {
+                                                                        viewModel.swapExercises(exercise.id, ti.exercise.id)
                                                                     }
                                                                 }
                                                             }
@@ -456,32 +452,28 @@ private fun findClosestKey(
     draggedKey: String,
     offset: Offset,
     startPos: Offset,
-    positions: Map<String, LayoutCoordinates>,
+    itemSize: Offset,
+    listState: LazyGridState,
     items: List<GridItem>,
     pinned: Boolean
 ): String? {
-    val dc = positions[draggedKey] ?: return null
-    val cx = startPos.x + offset.x + dc.size.width / 2f
-    val cy = startPos.y + offset.y + dc.size.height / 2f
+    val cx = startPos.x + offset.x + itemSize.x / 2f
+    val cy = startPos.y + offset.y + itemSize.y / 2f
     var bestKey: String? = null
     var bestDist = Float.MAX_VALUE
-    for ((key, coords) in positions) {
-        if (key == draggedKey) continue
-        val ci = items.find { it.key == key }
-        if (ci !is GridItem.CardItem) continue
-        if (ci.exercise.isPinned != pinned) continue
-        try {
-            val ep = coords.positionInRoot()
-            val ex = ep.x + coords.size.width / 2f
-            val ey = ep.y + coords.size.height / 2f
-            val dx = ex - cx
-            val dy = ey - cy
-            val d = dx * dx + dy * dy
-            if (d < bestDist) {
-                bestDist = d
-                bestKey = key
-            }
-        } catch (_: Exception) { }
+    for (info in listState.layoutInfo.visibleItemsInfo) {
+        if (info.key == draggedKey) continue
+        val gridItem = items.find { it.key == info.key } as? GridItem.CardItem ?: continue
+        if (gridItem.exercise.isPinned != pinned) continue
+        val ex = info.offset.x.toFloat() + info.size.width / 2f
+        val ey = info.offset.y.toFloat() + info.size.height / 2f
+        val dx = ex - cx
+        val dy = ey - cy
+        val d = dx * dx + dy * dy
+        if (d < bestDist) {
+            bestDist = d
+            bestKey = info.key as? String
+        }
     }
     return bestKey
 }
@@ -523,7 +515,7 @@ private fun ExerciseCard(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    var showDeleteDialog by remember { mutableStateOf(false) }
+    var deleteConfirmStep by remember { mutableIntStateOf(0) }
     var showGoalDialog by remember { mutableStateOf(false) }
     val appearance = LocalAppearance.current
 
@@ -579,22 +571,54 @@ private fun ExerciseCard(
         )
     }
 
-    if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
+    when (deleteConfirmStep) {
+        1 -> AlertDialog(
+            onDismissRequest = { deleteConfirmStep = 0 },
             title = { Text("Delete Exercise", color = TextPrimary) },
             text = { Text("Delete \"${exercise.name}\" and all its entries?", color = TextSecondary) },
             confirmButton = {
-                TextButton(onClick = {
-                    if (viewModel.appSettings.value.soundEnabled) SoundEngine.playDeleteExercise()
-                    viewModel.deleteExercise(exercise.id)
-                    showDeleteDialog = false
-                }) {
+                TextButton(onClick = { deleteConfirmStep = 2 }) {
                     Text("Delete", color = appearance.exerciseAccentColor)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
+                TextButton(onClick = { deleteConfirmStep = 0 }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            },
+            containerColor = Background
+        )
+        2 -> AlertDialog(
+            onDismissRequest = { deleteConfirmStep = 0 },
+            title = { Text("Are You Sure?", color = TextPrimary) },
+            text = { Text("All logged entries for \"${exercise.name}\" will be permanently lost.", color = TextSecondary) },
+            confirmButton = {
+                TextButton(onClick = { deleteConfirmStep = 3 }) {
+                    Text("Delete", color = appearance.exerciseAccentColor)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteConfirmStep = 0 }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            },
+            containerColor = Background
+        )
+        3 -> AlertDialog(
+            onDismissRequest = { deleteConfirmStep = 0 },
+            title = { Text("Final Confirmation", color = TextPrimary) },
+            text = { Text("This action cannot be undone. Confirm deletion?", color = TextSecondary) },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (viewModel.appSettings.value.soundEnabled) SoundEngine.playDeleteExercise()
+                    viewModel.deleteExercise(exercise.id)
+                    deleteConfirmStep = 0
+                }) {
+                    Text("Delete Permanently", color = Color(0xFFFF003C))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteConfirmStep = 0 }) {
                     Text("Cancel", color = TextSecondary)
                 }
             },
@@ -659,7 +683,7 @@ private fun ExerciseCard(
                             )
                         }
                         IconButton(
-                            onClick = { showDeleteDialog = true },
+                            onClick = { deleteConfirmStep = 1 },
                             modifier = Modifier.size(24.dp)
                         ) {
                             Icon(
@@ -721,11 +745,17 @@ private fun ExerciseCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = if (exercise.type == "reps") "REPS" else "HOLD",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary
-                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        DifficultyBadge(difficulty = exercise.parsedDifficulty())
+                        Text(
+                            text = if (exercise.type == "reps") "REPS" else "HOLD",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary
+                        )
+                    }
                     AnimatedRing(
                         progress = if (exercise.goal != null) goalProgress else 0.75f,
                         modifier = Modifier.size(36.dp),
@@ -755,6 +785,31 @@ private fun PinnedBadge() {
             style = MaterialTheme.typography.labelSmall,
             color = Background,
             fontFamily = FontFamily.Monospace,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun DifficultyBadge(difficulty: ExerciseDifficulty) {
+    val (bgColor, textColor) = when (difficulty) {
+        ExerciseDifficulty.EASY -> Color(0xFF00FF85) to Color(0xFF0D1526)
+        ExerciseDifficulty.MEDIUM -> Color(0xFF00F5FF) to Color(0xFF0D1526)
+        ExerciseDifficulty.HARD -> Color(0xFFFF6B00) to Color(0xFF0D1526)
+        ExerciseDifficulty.EXTREME -> Color(0xFFFF003C) to Color(0xFF0D1526)
+    }
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(bgColor.copy(alpha = 0.2f))
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    ) {
+        Text(
+            text = difficulty.label,
+            style = MaterialTheme.typography.labelSmall,
+            color = bgColor,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 10.sp,
             maxLines = 1
         )
     }

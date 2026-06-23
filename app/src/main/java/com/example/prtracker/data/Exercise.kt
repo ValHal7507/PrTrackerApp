@@ -10,5 +10,6 @@ data class Exercise(
     val entries: List<PREntry>,
     val isPinned: Boolean = false,
     val sortOrder: Int = 0,
-    val goal: Int? = null
+    val goal: Int? = null,
+    val difficulty: String = "MEDIUM"
 )

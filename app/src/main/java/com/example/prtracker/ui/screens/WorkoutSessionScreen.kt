@@ -100,6 +100,16 @@ fun WorkoutSessionScreen(
                     textAlign = TextAlign.Center
                 )
                 Spacer(modifier = Modifier.height(16.dp))
+                if (session?.xpEarned != null && session!!.xpEarned > 0L) {
+                    Text(
+                        text = "+${session!!.xpEarned} XP",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = GoalComplete,
+                        fontFamily = FontFamily.Monospace,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
                 Button(
                     onClick = { navController.popBackStack() },
                     colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent)

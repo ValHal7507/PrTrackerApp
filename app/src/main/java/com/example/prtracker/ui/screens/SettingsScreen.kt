@@ -48,17 +48,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import com.example.prtracker.data.SoundEngine
+import com.example.prtracker.data.XpEngine
 import com.example.prtracker.ui.components.GlowingCard
 import com.example.prtracker.ui.components.GridBackground
 import com.example.prtracker.ui.components.NeonButton
 import com.example.prtracker.navigation.Routes
 import com.example.prtracker.ui.theme.Background
 import com.example.prtracker.ui.theme.CardBackground
+import com.example.prtracker.ui.theme.GoalComplete
 import com.example.prtracker.ui.theme.LocalAppearance
 import com.example.prtracker.ui.theme.PrimaryAccent
 import com.example.prtracker.ui.theme.TextPrimary
@@ -75,6 +78,8 @@ fun SettingsScreen(
     val context = LocalContext.current
     val appSettings by viewModel.appSettings.collectAsState()
     val appearance = LocalAppearance.current
+    val totalXp by viewModel.totalXp.collectAsState()
+    val currentLevel by viewModel.currentLevel.collectAsState()
     var showClearDialog by remember { mutableStateOf(false) }
     var showExportSuccess by remember { mutableStateOf(false) }
     var targetWeightText by remember(appSettings.targetWeight) {
@@ -536,6 +541,37 @@ fun SettingsScreen(
                 text = "CLEAR ALL DATA",
                 onClick = { showClearDialog = true }
             )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            GlowingCard(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "TOTAL XP",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = TextSecondary,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "%,d XP".format(totalXp),
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = if (currentLevel >= XpEngine.MAX_LEVEL) GoalComplete else appearance.systemAccentColor,
+                        fontFamily = FontFamily.Monospace,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = if (currentLevel >= XpEngine.MAX_LEVEL) "MAX LEVEL" else "Level $currentLevel",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(32.dp))
 

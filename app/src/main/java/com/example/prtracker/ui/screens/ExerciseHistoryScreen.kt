@@ -17,13 +17,23 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -36,8 +46,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
+import com.example.prtracker.data.XpEngine
+import com.example.prtracker.data.parsedDifficulty
 import com.example.prtracker.ui.components.GridBackground
+import com.example.prtracker.ui.theme.Background
 import com.example.prtracker.ui.theme.CardBackground
+import com.example.prtracker.ui.theme.GoalComplete
 import com.example.prtracker.ui.theme.LocalAppearance
 import com.example.prtracker.ui.theme.TextPrimary
 import com.example.prtracker.ui.theme.TextSecondary
@@ -49,13 +63,15 @@ import java.util.Date
 import java.util.Locale
 
 private data class ExerciseHistoryItem(
+    val exerciseId: String,
     val id: String,
     val exerciseName: String,
     val value: Int,
     val type: String,
     val date: Long,
     val note: String,
-    val wasPR: Boolean
+    val wasPR: Boolean,
+    val xpEarned: Long = 0L
 )
 
 @Composable
@@ -80,15 +96,18 @@ fun ExerciseHistoryScreen(
                 if (entry.value > runningMax) runningMax = entry.value
             }
             for (entry in exercise.entries) {
+                val xp = XpEngine.xpForEntry(entry.value, exercise.type, exercise.parsedDifficulty())
                 allItems.add(
                     ExerciseHistoryItem(
+                        exerciseId = exercise.id,
                         id = entry.id,
                         exerciseName = exercise.name,
                         value = entry.value,
                         type = exercise.type,
                         date = entry.date,
                         note = entry.note,
-                        wasPR = entryPRMap[entry.id] ?: false
+                        wasPR = entryPRMap[entry.id] ?: false,
+                        xpEarned = xp
                     )
                 )
             }
@@ -97,6 +116,76 @@ fun ExerciseHistoryScreen(
     }
 
     val dateFormat = remember { SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault()) }
+    var searchQuery by remember { mutableStateOf("") }
+    var deleteStep by remember { mutableIntStateOf(0) }
+    var deletingItem by remember { mutableStateOf<ExerciseHistoryItem?>(null) }
+
+    val filteredItems = remember(historyItems, searchQuery) {
+        if (searchQuery.isBlank()) historyItems
+        else historyItems.filter { it.exerciseName.contains(searchQuery, ignoreCase = true) }
+    }
+
+    deletingItem?.let { item ->
+        val suffix = if (item.type == "hold") "s" else " reps"
+        if (deleteStep == 1) {
+            AlertDialog(
+                onDismissRequest = { deleteStep = 0; deletingItem = null },
+                title = { Text("Delete Entry", color = TextPrimary) },
+                text = { Text("Delete this entry from \"${item.exerciseName}\"?", color = TextSecondary) },
+                confirmButton = {
+                    TextButton(onClick = { deleteStep = 2 }) {
+                        Text("Delete", color = appearance.exerciseAccentColor)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { deleteStep = 0; deletingItem = null }) {
+                        Text("Cancel", color = TextSecondary)
+                    }
+                },
+                containerColor = Background
+            )
+        }
+        if (deleteStep == 2) {
+            AlertDialog(
+                onDismissRequest = { deleteStep = 0; deletingItem = null },
+                title = { Text("Are You Sure?", color = TextPrimary) },
+                text = { Text("The entry value of ${item.value}$suffix will be permanently lost.", color = TextSecondary) },
+                confirmButton = {
+                    TextButton(onClick = { deleteStep = 3 }) {
+                        Text("Delete", color = appearance.exerciseAccentColor)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { deleteStep = 0; deletingItem = null }) {
+                        Text("Cancel", color = TextSecondary)
+                    }
+                },
+                containerColor = Background
+            )
+        }
+        if (deleteStep == 3) {
+            AlertDialog(
+                onDismissRequest = { deleteStep = 0; deletingItem = null },
+                title = { Text("Final Confirmation", color = TextPrimary) },
+                text = { Text("This action cannot be undone. Confirm deletion?", color = TextSecondary) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        viewModel.deleteEntry(item.exerciseId, item.id)
+                        deleteStep = 0
+                        deletingItem = null
+                    }) {
+                        Text("Delete Permanently", color = Color(0xFFFF003C))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { deleteStep = 0; deletingItem = null }) {
+                        Text("Cancel", color = TextSecondary)
+                    }
+                },
+                containerColor = Background
+            )
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         GridBackground()
@@ -135,6 +224,33 @@ fun ExerciseHistoryScreen(
                 )
             }
 
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("Search exercises...", color = TextSecondary) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = TextSecondary
+                    )
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary,
+                    cursorColor = appearance.exerciseAccentColor,
+                    focusedBorderColor = appearance.exerciseAccentColor,
+                    unfocusedBorderColor = TextSecondary.copy(alpha = 0.5f),
+                    focusedContainerColor = CardBackground,
+                    unfocusedContainerColor = CardBackground
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+
             if (historyItems.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -142,6 +258,18 @@ fun ExerciseHistoryScreen(
                 ) {
                     Text(
                         text = "NO ENTRIES YET",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = TextSecondary,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            } else if (filteredItems.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "NO MATCHES",
                         style = MaterialTheme.typography.headlineMedium,
                         color = TextSecondary,
                         textAlign = TextAlign.Center
@@ -157,14 +285,13 @@ fun ExerciseHistoryScreen(
                     ),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(historyItems, key = { it.id }) { item ->
+                    items(filteredItems, key = { it.id }) { item ->
                         val accentColor = if (item.wasPR) appearance.pinnedAccentColor else appearance.exerciseAccentColor
                         val suffix = if (item.type == "hold") "s" else " reps"
 
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(64.dp)
                                 .drawBehind {
                                     drawRoundRect(
                                         color = CardBackground,
@@ -177,11 +304,11 @@ fun ExerciseHistoryScreen(
                                         cornerRadius = CornerRadius(8.dp.toPx(), 0f)
                                     )
                                 }
-                                .padding(start = 16.dp, end = 12.dp)
+                                .padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 10.dp)
                         ) {
                             Row(
-                                modifier = Modifier.fillMaxSize(),
-                                verticalAlignment = Alignment.CenterVertically
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.Top
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
@@ -199,16 +326,39 @@ fun ExerciseHistoryScreen(
                                             color = accentColor,
                                             fontFamily = FontFamily.Monospace
                                         )
-                                        if (item.note.isNotBlank()) {
+                                        if (item.xpEarned > 0L) {
+                                            Spacer(modifier = Modifier.width(10.dp))
                                             Text(
-                                                text = "  ·  ${item.note}",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = TextSecondary
+                                                text = "+${item.xpEarned} XP",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = GoalComplete,
+                                                fontFamily = FontFamily.Monospace
                                             )
                                         }
                                     }
+                                    if (item.note.isNotBlank()) {
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "  \u00B7  ${item.note}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = TextSecondary,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
                                 }
                                 Column(horizontalAlignment = Alignment.End) {
+                                    IconButton(
+                                        onClick = { deletingItem = item; deleteStep = 1 },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Delete entry",
+                                            tint = TextSecondary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
                                     Text(
                                         text = dateFormat.format(Date(item.date)),
                                         style = MaterialTheme.typography.labelSmall,

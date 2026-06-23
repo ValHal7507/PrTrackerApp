@@ -8,8 +8,10 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.MaterialTheme
@@ -31,13 +33,15 @@ import androidx.compose.ui.unit.sp
 import com.airbnb.lottie.compose.LottieAnimation
 import com.airbnb.lottie.compose.LottieCompositionSpec
 import com.airbnb.lottie.compose.rememberLottieComposition
+import com.example.prtracker.ui.theme.GoalComplete
 import com.example.prtracker.ui.theme.SuccessPurple
 import kotlinx.coroutines.delay
 
 @Composable
 fun PRCelebrationOverlay(
     visible: Boolean,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    xpEarned: Long = 0L
 ) {
     var showGreenFlash by remember(visible) { mutableStateOf(false) }
 
@@ -59,8 +63,7 @@ fun PRCelebrationOverlay(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .clickable { onDismiss() },
-            contentAlignment = Alignment.Center
+                .clickable { onDismiss() }
         ) {
             if (showGreenFlash) {
                 Box(
@@ -93,7 +96,21 @@ fun PRCelebrationOverlay(
                     .fillMaxWidth()
                     .padding(horizontal = 32.dp)
                     .statusBarsPadding()
+                    .align(Alignment.Center)
             )
+            if (xpEarned > 0L) {
+                Text(
+                    text = "+$xpEarned XP",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = GoalComplete,
+                    fontFamily = FontFamily.Monospace,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 64.dp)
+                        .align(Alignment.BottomCenter)
+                )
+            }
         }
     }
 }

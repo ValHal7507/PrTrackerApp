@@ -24,6 +24,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,17 +32,24 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
+import kotlinx.coroutines.delay
 import com.example.prtracker.data.Exercise
+import com.example.prtracker.data.ExerciseClassifier
 import com.example.prtracker.ui.components.GridBackground
 import com.example.prtracker.ui.components.NeonButton
 import com.example.prtracker.ui.theme.Background
 import com.example.prtracker.ui.theme.CardBackground
+import com.example.prtracker.ui.theme.LocalAppearance
 import com.example.prtracker.ui.theme.PrimaryAccent
 import com.example.prtracker.ui.theme.TextPrimary
 import com.example.prtracker.ui.theme.TextSecondary
+import com.example.prtracker.ui.theme.systemAccentColor
 import com.example.prtracker.viewmodel.PRViewModel
 import java.util.UUID
 
@@ -53,6 +61,21 @@ fun AddExerciseScreen(
     var name by remember { mutableStateOf("") }
     var type by remember { mutableStateOf("reps") }
     var goal by remember { mutableStateOf("") }
+    var autoClassifiedDifficulty by remember { mutableStateOf("MEDIUM") }
+    var userOverride by remember { mutableStateOf<String?>(null) }
+    val difficulty = userOverride ?: autoClassifiedDifficulty
+
+    LaunchedEffect(name) {
+        delay(150)
+        autoClassifiedDifficulty = ExerciseClassifier.classify(name.trim()).name
+    }
+
+    val difficultyColors = mapOf(
+        "EASY" to Color(0xFF00FF85),
+        "MEDIUM" to LocalAppearance.current.systemAccentColor,
+        "HARD" to Color(0xFFFF8C00),
+        "EXTREME" to Color(0xFFFF003C)
+    )
 
     Box(modifier = Modifier.fillMaxSize()) {
         GridBackground()
@@ -149,6 +172,66 @@ fun AddExerciseScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
+            Text(
+                text = "DIFFICULTY",
+                style = MaterialTheme.typography.titleMedium,
+                color = TextSecondary
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf("EASY", "MEDIUM", "HARD", "EXTREME").forEach { level ->
+                    val selected = difficulty == level
+                    val pillColor = difficultyColors[level] ?: Color(0xFF00F5FF)
+                    val isAuto = userOverride == null && level == autoClassifiedDifficulty
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                if (selected) pillColor.copy(alpha = 0.2f)
+                                else Color.Transparent
+                            )
+                            .border(
+                                BorderStroke(
+                                    1.dp,
+                                    if (selected) pillColor
+                                    else Color.White.copy(alpha = 0.1f)
+                                ),
+                                RoundedCornerShape(8.dp)
+                            )
+                            .clickable { userOverride = level }
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = level,
+                            color = if (selected) pillColor else Color.White.copy(alpha = 0.3f),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            }
+
+            if (userOverride == null && name.isNotBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "AUTO",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = (difficultyColors[difficulty] ?: Color(0xFF00F5FF)).copy(alpha = 0.6f),
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 9.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
             OutlinedTextField(
                 value = goal,
                 onValueChange = { goal = it.filter { c -> c.isDigit() } },
@@ -179,7 +262,8 @@ fun AddExerciseScreen(
                             id = UUID.randomUUID().toString(),
                             name = name.trim(),
                             type = type,
-                            entries = emptyList()
+                            entries = emptyList(),
+                            difficulty = difficulty
                         )
                         viewModel.addExercise(exercise)
                         navController.popBackStack()

@@ -13,13 +13,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -43,6 +47,8 @@ import com.example.prtracker.data.WorkoutSession
 import com.example.prtracker.ui.components.GlowingCard
 import com.example.prtracker.ui.components.GridBackground
 import com.example.prtracker.ui.theme.Background
+import com.example.prtracker.ui.theme.CardBackground
+import com.example.prtracker.ui.theme.GoalComplete
 import com.example.prtracker.ui.theme.LocalAppearance
 import com.example.prtracker.ui.theme.TextPrimary
 import com.example.prtracker.ui.theme.TextSecondary
@@ -72,6 +78,12 @@ fun WorkoutHistoryScreen(
     val appearance = LocalAppearance.current
     val history by viewModel.workoutHistory.collectAsState()
     val dateFormat = remember { SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault()) }
+    var searchQuery by remember { mutableStateOf("") }
+
+    val filteredHistory = remember(history, searchQuery) {
+        if (searchQuery.isBlank()) history
+        else history.filter { it.presetName.contains(searchQuery, ignoreCase = true) }
+    }
 
     var deleteStep by remember { mutableStateOf<Int?>(null) }
     var deletingSessionId by remember { mutableStateOf<String?>(null) }
@@ -155,6 +167,33 @@ fun WorkoutHistoryScreen(
                 )
             }
 
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("Search workouts...", color = TextSecondary) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = TextSecondary
+                    )
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary,
+                    cursorColor = appearance.systemAccentColor,
+                    focusedBorderColor = appearance.systemAccentColor,
+                    unfocusedBorderColor = TextSecondary.copy(alpha = 0.5f),
+                    focusedContainerColor = CardBackground,
+                    unfocusedContainerColor = CardBackground
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+
             if (history.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -162,6 +201,18 @@ fun WorkoutHistoryScreen(
                 ) {
                     Text(
                         text = "NO WORKOUTS YET",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = TextSecondary,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            } else if (filteredHistory.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "NO MATCHES",
                         style = MaterialTheme.typography.headlineMedium,
                         color = TextSecondary,
                         textAlign = TextAlign.Center
@@ -177,7 +228,7 @@ fun WorkoutHistoryScreen(
                     ),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(history, key = { it.id }) { workout ->
+                    items(filteredHistory, key = { it.id }) { workout ->
                         GlowingCard(modifier = Modifier.fillMaxWidth()) {
                             Row(
                                 modifier = Modifier
@@ -211,6 +262,15 @@ fun WorkoutHistoryScreen(
                                             text = "${workout.exercises.size} exercises",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = TextSecondary
+                                        )
+                                    }
+                                    if (workout.xpEarned > 0L) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "+${workout.xpEarned} XP",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = GoalComplete,
+                                            fontFamily = FontFamily.Monospace
                                         )
                                     }
                                     Spacer(modifier = Modifier.height(4.dp))

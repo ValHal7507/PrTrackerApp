@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -44,11 +45,14 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import com.example.prtracker.data.PREntry
 import com.example.prtracker.data.SoundEngine
+import com.example.prtracker.data.XpEngine
+import com.example.prtracker.data.parsedDifficulty
 import com.example.prtracker.navigation.Routes
 import com.example.prtracker.ui.components.GridBackground
 import com.example.prtracker.ui.components.NeonButton
 import com.example.prtracker.ui.components.PRCelebrationOverlay
 import com.example.prtracker.ui.theme.Background
+import com.example.prtracker.ui.theme.GoalComplete
 import com.example.prtracker.ui.theme.PrimaryAccent
 import com.example.prtracker.ui.theme.SuccessPurple
 import com.example.prtracker.ui.theme.TextPrimary
@@ -78,6 +82,7 @@ fun LogEntryScreen(
     }
 
     val currentPR = viewModel.getCurrentPR(exerciseId)
+    val entryXp = if (value > 0) XpEngine.xpForEntry(value, exercise.type, exercise.parsedDifficulty()) else 0L
     val valueColor by animateColorAsState(
         targetValue = if (isNewPR) SuccessPurple else PrimaryAccent,
         animationSpec = tween(300)
@@ -226,6 +231,18 @@ fun LogEntryScreen(
                 }
             }
 
+            if (entryXp > 0L) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "+$entryXp XP",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = GoalComplete,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center
+                )
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
@@ -305,6 +322,7 @@ fun LogEntryScreen(
 
         PRCelebrationOverlay(
             visible = showCelebration,
+            xpEarned = entryXp,
             onDismiss = {
                 showCelebration = false
                 navController.popBackStack()

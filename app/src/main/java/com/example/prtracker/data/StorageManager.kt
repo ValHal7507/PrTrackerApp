@@ -17,7 +17,9 @@ data class StorageData(
     val runningPRs: RunningPRs = RunningPRs(),
     val workoutPresets: List<WorkoutPreset> = emptyList(),
     val workoutSession: WorkoutSession? = null,
-    val workoutHistory: List<WorkoutSession> = emptyList()
+    val workoutHistory: List<WorkoutSession> = emptyList(),
+    val totalXp: Long = 0L,
+    val xpBootstrapped: Boolean = false
 )
 
 class StorageManager(private val context: Context) {
@@ -58,7 +60,7 @@ class StorageManager(private val context: Context) {
 
     fun saveData(exercises: List<Exercise>, goals: List<Goal>) {
         val existing = loadFullData()
-        saveFullData(exercises, goals, existing.weightEntries, existing.settings, existing.restDays, existing.runEntries, existing.runningPRs, existing.workoutPresets, existing.workoutSession, existing.workoutHistory)
+        saveFullData(exercises, goals, existing.weightEntries, existing.settings, existing.restDays, existing.runEntries, existing.runningPRs, existing.workoutPresets, existing.workoutSession, existing.workoutHistory, existing.totalXp, existing.xpBootstrapped)
     }
 
     fun saveFullData(
@@ -71,10 +73,12 @@ class StorageManager(private val context: Context) {
         runningPRs: RunningPRs = RunningPRs(),
         workoutPresets: List<WorkoutPreset> = emptyList(),
         workoutSession: WorkoutSession? = null,
-        workoutHistory: List<WorkoutSession> = emptyList()
+        workoutHistory: List<WorkoutSession> = emptyList(),
+        totalXp: Long = 0L,
+        xpBootstrapped: Boolean = false
     ) {
         try {
-            val data = StorageData(exercises, goals, weightEntries, settings, restDays, runEntries, runningPRs, workoutPresets, workoutSession, workoutHistory)
+            val data = StorageData(exercises, goals, weightEntries, settings, restDays, runEntries, runningPRs, workoutPresets, workoutSession, workoutHistory, totalXp, xpBootstrapped)
             val json = gson.toJson(data)
             file.writeText(json)
         } catch (e: Exception) {
@@ -88,6 +92,6 @@ class StorageManager(private val context: Context) {
 
     fun saveExercises(exercises: List<Exercise>) {
         val full = loadFullData()
-        saveFullData(exercises, full.goals, full.weightEntries, full.settings, full.restDays, full.runEntries, full.runningPRs, full.workoutPresets, full.workoutSession, full.workoutHistory)
+        saveFullData(exercises, full.goals, full.weightEntries, full.settings, full.restDays, full.runEntries, full.runningPRs, full.workoutPresets, full.workoutSession, full.workoutHistory, full.totalXp, full.xpBootstrapped)
     }
 }
