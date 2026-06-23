@@ -15,4 +15,6 @@
 .opencode
 *.md
 !README.md
+!CONTEXT.md
+!XP.md
 local.properties
