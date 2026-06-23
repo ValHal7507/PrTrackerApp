@@ -51,6 +51,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import com.example.prtracker.data.SessionExerciseProgress
+import com.example.prtracker.data.XpEngine
+import com.example.prtracker.data.parsedDifficulty
 import com.example.prtracker.ui.components.GridBackground
 import com.example.prtracker.ui.theme.Background
 import com.example.prtracker.ui.theme.CardBackground
@@ -67,6 +69,7 @@ fun WorkoutSessionScreen(
     navController: NavHostController
 ) {
     val session by viewModel.activeSession.collectAsState()
+    val exercises by viewModel.exercises.collectAsState()
     var tick by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(session?.isPaused) {
@@ -175,6 +178,26 @@ fun WorkoutSessionScreen(
                     text = "SETS REMAINING: $totalSetsRemaining",
                     style = MaterialTheme.typography.labelMedium,
                     color = TextSecondary,
+                    fontFamily = FontFamily.Monospace
+                )
+                val earnedXp = remember(session) {
+                    var total = 0L
+                    for (exProgress in session!!.exercises) {
+                        if (exProgress.completedSets.isEmpty()) continue
+                        val exerciseType = if (exProgress.isHold) "hold" else "reps"
+                        val exercise = exercises.find { it.name == exProgress.exerciseName } ?: continue
+                        val difficulty = exercise.parsedDifficulty()
+                        for (setEntry in exProgress.completedSets) {
+                            total += XpEngine.xpForEntry(setEntry.value, exerciseType, difficulty)
+                        }
+                    }
+                    total
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "XP EARNED: $earnedXp",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = GoalComplete,
                     fontFamily = FontFamily.Monospace
                 )
             }

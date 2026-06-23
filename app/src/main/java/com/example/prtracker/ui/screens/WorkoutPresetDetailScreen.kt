@@ -70,8 +70,13 @@ fun WorkoutPresetDetailScreen(
     val presets by viewModel.workoutPresets.collectAsState()
     val preset = presets.find { it.id == presetId }
     val activeSession by viewModel.activeSession.collectAsState()
+    val exercises by viewModel.exercises.collectAsState()
     val appearance = LocalAppearance.current
     var showDeleteDialog by remember { mutableStateOf(false) }
+
+    val predictedXp = remember(preset, exercises) {
+        if (preset != null) com.example.prtracker.data.XpEngine.predictWorkoutXp(preset, exercises) else 0L
+    }
 
     val editBrush = remember { Brush.linearGradient(listOf(appearance.systemAccentColor, Color.Transparent)) }
     val deleteBrush = remember { Brush.linearGradient(listOf(PinnedAccentSecondary, Color.Transparent)) }
@@ -182,6 +187,21 @@ fun WorkoutPresetDetailScreen(
                                 text = preset.description,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = TextSecondary,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "ESTIMATED XP: ",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = TextSecondary,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                text = "$predictedXp",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = GoalComplete,
                                 fontFamily = FontFamily.Monospace
                             )
                         }

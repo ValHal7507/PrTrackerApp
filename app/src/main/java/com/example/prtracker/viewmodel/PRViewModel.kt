@@ -7,7 +7,6 @@ import com.example.prtracker.data.AppSettings
 import com.example.prtracker.data.AppearanceSettings
 import com.example.prtracker.data.AppTheme
 import com.example.prtracker.data.Exercise
-import com.example.prtracker.data.ExerciseClassifier
 import com.example.prtracker.data.ExerciseDifficulty
 import com.example.prtracker.data.parsedDifficulty
 import com.example.prtracker.data.Goal
@@ -153,12 +152,9 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
             var loadedXp = full.totalXp
             var bootstrapped = full.xpBootstrapped
 
-            val reclassified = full.exercises.map { exercise ->
-                exercise.copy(difficulty = ExerciseClassifier.classify(exercise.name).name)
-            }
-            _exercises.value = reclassified
+            _exercises.value = full.exercises
 
-            loadedXp = XpEngine.computeTotalXpFromExercises(reclassified)
+            loadedXp = XpEngine.computeTotalXpFromExercises(full.exercises)
             if (!bootstrapped) {
                 bootstrapped = true
             }
@@ -167,7 +163,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
                 if (session.xpEarned > 0L) return@map session
                 var computed = 0L
                 for (exProgress in session.exercises) {
-                    val match = reclassified.find { it.name == exProgress.exerciseName } ?: continue
+                    val match = full.exercises.find { it.name == exProgress.exerciseName } ?: continue
                     val type = if (exProgress.isHold) "hold" else "reps"
                     val difficulty = match.parsedDifficulty()
                     for (setEntry in exProgress.completedSets) {
@@ -178,7 +174,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             storageManager.saveFullData(
-                reclassified, full.goals, full.weightEntries, full.settings,
+                full.exercises, full.goals, full.weightEntries, full.settings,
                 full.restDays, full.runEntries, full.runningPRs, full.workoutPresets,
                 full.workoutSession, migratedHistory, loadedXp, bootstrapped
             )
@@ -224,13 +220,47 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
 
     fun addExercise(exercise: Exercise) {
         val current = _exercises.value.toMutableList()
-        val classified = exercise.copy(
-            difficulty = ExerciseClassifier.classify(exercise.name).name
-        )
-        val maxOrder = current.filter { it.isPinned == classified.isPinned }.maxOfOrNull { it.sortOrder } ?: -1
-        current.add(classified.copy(sortOrder = maxOrder + 1))
+        val maxOrder = current.filter { it.isPinned == exercise.isPinned }.maxOfOrNull { it.sortOrder } ?: -1
+        current.add(exercise.copy(sortOrder = maxOrder + 1))
         _exercises.value = current
         saveData()
+    }
+
+    fun renameExercise(exerciseId: String, newName: String) {
+        val exercises = _exercises.value.toMutableList()
+        val index = exercises.indexOfFirst { it.id == exerciseId }
+        if (index < 0) return
+        val oldName = exercises[index].name
+        if (oldName == newName) return
+        exercises[index] = exercises[index].copy(name = newName)
+        _exercises.value = exercises
+
+        _goals.value = _goals.value.map { goal ->
+            if (goal.exerciseId == exerciseId) goal.copy(exerciseName = newName) else goal
+        }
+
+        _workoutPresets.value = _workoutPresets.value.map { preset ->
+            preset.copy(exercises = preset.exercises.map { pe ->
+                if (pe.exerciseName == oldName) pe.copy(exerciseName = newName) else pe
+            })
+        }
+
+        val session = _activeSession.value
+        if (session != null) {
+            val updatedSessionExercises = session.exercises.map { sep ->
+                if (sep.exerciseName == oldName) sep.copy(exerciseName = newName) else sep
+            }
+            _activeSession.value = session.copy(exercises = updatedSessionExercises)
+        }
+
+        _workoutHistory.value = _workoutHistory.value.map { session ->
+            session.copy(exercises = session.exercises.map { sep ->
+                if (sep.exerciseName == oldName) sep.copy(exerciseName = newName) else sep
+            })
+        }
+
+        saveData()
+        if (_activeSession.value != null) saveSessionData()
     }
 
     fun logEntry(exerciseId: String, entry: PREntry) {
@@ -891,9 +921,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
     fun importSyncData(data: StorageData, mode: SyncMode) {
         when (mode) {
             SyncMode.REPLACE -> {
-                _exercises.value = data.exercises.map { exercise ->
-                    exercise.copy(difficulty = ExerciseClassifier.classify(exercise.name).name)
-                }
+                _exercises.value = data.exercises
                 _goals.value = data.goals
                 _weightEntries.value = data.weightEntries
                 _appSettings.value = data.settings
@@ -911,9 +939,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
                 val localWeightEntries = _weightEntries.value
                 val localSettings = _appSettings.value
 
-                val mergedExercises = mergeExercises(localExercises, data.exercises).map { exercise ->
-                    exercise.copy(difficulty = ExerciseClassifier.classify(exercise.name).name)
-                }
+                val mergedExercises = mergeExercises(localExercises, data.exercises)
                 val mergedGoals = mergeGoals(localGoals, data.goals)
                 val mergedWeightEntries = mergeWeightEntries(localWeightEntries, data.weightEntries)
 

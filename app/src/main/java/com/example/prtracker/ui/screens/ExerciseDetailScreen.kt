@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
@@ -29,6 +30,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -83,6 +86,8 @@ fun ExerciseDetailScreen(
     val exercise = exercises.find { it.id == exerciseId }
     val appearance = LocalAppearance.current
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var renameText by remember { mutableStateOf("") }
 
     if (exercise == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -119,6 +124,46 @@ fun ExerciseDetailScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            },
+            containerColor = Background
+        )
+    }
+
+    if (showRenameDialog) {
+        AlertDialog(
+            onDismissRequest = { showRenameDialog = false },
+            title = { Text("Rename Exercise", color = TextPrimary) },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        cursorColor = appearance.exerciseAccentColor,
+                        focusedBorderColor = appearance.exerciseAccentColor,
+                        unfocusedBorderColor = TextSecondary.copy(alpha = 0.3f),
+                        focusedContainerColor = Background,
+                        unfocusedContainerColor = Background
+                    )
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.renameExercise(exerciseId, renameText.trim())
+                        showRenameDialog = false
+                    },
+                    enabled = renameText.isNotBlank() && renameText.trim() != exercise.name
+                ) {
+                    Text("Rename", color = appearance.exerciseAccentColor)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRenameDialog = false }) {
                     Text("Cancel", color = TextSecondary)
                 }
             },
@@ -177,6 +222,13 @@ fun ExerciseDetailScreen(
 
                     Spacer(modifier = Modifier.width(4.dp))
 
+                    IconButton(onClick = {
+                        renameText = exercise.name
+                        showRenameDialog = true
+                    }) {
+                        Icon(Icons.Default.Edit, "Rename", tint = appearance.exerciseAccentColor.copy(alpha = 0.6f), modifier = Modifier.size(18.dp))
+                    }
+
                     IconButton(onClick = { showDeleteDialog = true }) {
                         Icon(Icons.Default.Delete, "Delete", tint = appearance.exerciseAccentColor.copy(alpha = 0.6f))
                     }
@@ -219,6 +271,7 @@ fun ExerciseDetailScreen(
                                         setDrawGridLines(true)
                                         gridColor = android.graphics.Color.argb(40, 0, 245, 255)
                                         textColor = android.graphics.Color.argb(255, 107, 140, 174)
+                                        axisMinimum = 0f
                                     }
 
                                     axisRight.isEnabled = false

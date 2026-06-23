@@ -81,4 +81,25 @@ object XpEngine {
         }
         return total
     }
+
+    fun predictWorkoutXp(preset: WorkoutPreset, exercises: List<Exercise>): Long {
+        var total = 0L
+        for (pe in preset.exercises) {
+            val exercise = exercises.find { it.name == pe.exerciseName } ?: continue
+            val difficulty = exercise.parsedDifficulty()
+            val exerciseType = if (pe.targetHoldSeconds > 0) "hold" else "reps"
+            val valuePerSet = when {
+                pe.isUntilFailure -> {
+                    val pr = exercise.entries.maxOfOrNull { it.value } ?: 0
+                    pr
+                }
+                pe.targetHoldSeconds > 0 -> pe.targetHoldSeconds
+                else -> pe.targetReps
+            }
+            for (setIdx in 0 until pe.sets) {
+                total += xpForEntry(valuePerSet, exerciseType, difficulty)
+            }
+        }
+        return total
+    }
 }
