@@ -27,10 +27,14 @@ enum class PetUpgrade(
     ROLL_SPEED(
         id = "roll_speed",
         displayName = "ROLL SPEED",
-        description = "Faster dice animation (-72ms per level, min 200ms)",
+        description = "Faster dice animation (-72ms per level)",
         baseCost = 300L,
         costMultiplier = 1.10f
-    ),
+    ) {
+        override fun maxLevel(): Int? = 23
+        override fun costForLevel(currentLevel: Int): Long =
+            (baseCost * 1.8.pow(currentLevel)).toLong()
+    },
     LUCKY_ROLL(
         id = "lucky_roll",
         displayName = "LUCKY ROLL",
@@ -47,17 +51,17 @@ enum class PetUpgrade(
         fixedCosts = listOf(1_000_000L, 10_000_000L, 100_000_000L)
     );
 
-    fun costForLevel(currentLevel: Int): Long {
+    open fun costForLevel(currentLevel: Int): Long {
         if (fixedCosts != null) {
             return if (currentLevel < fixedCosts.size) fixedCosts[currentLevel] else Long.MAX_VALUE
         }
-        return (baseCost * costMultiplier.pow(currentLevel * 0.82f)).toLong()
+        return (baseCost * 1.25.pow(currentLevel)).toLong()
     }
 
     fun nextLevelCost(currentLevel: Int): Long =
         costForLevel(currentLevel)
 
-    fun maxLevel(): Int? = fixedCosts?.size
+    open fun maxLevel(): Int? = fixedCosts?.size
 
     companion object {
         fun fromId(id: String): PetUpgrade? = entries.find { it.id == id }

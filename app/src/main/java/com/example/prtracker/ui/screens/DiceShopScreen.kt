@@ -169,7 +169,7 @@ private fun DiceShopCard(
     val accent = LocalAppearance.current.systemAccentColor
     var quantity by remember(diceType) { mutableStateOf(1) }
     var quantityText by remember(diceType) { mutableStateOf("1") }
-    val totalCost = diceType.price * quantity
+    val totalCost = diceType.price.toLong() * quantity
     val canAfford = coins >= totalCost
 
     Box(
@@ -337,22 +337,46 @@ private fun DiceShopCard(
                     }
                 }
 
-                // Buy button
-                Button(
-                    onClick = { onBuy(quantity) },
-                    enabled = canAfford,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = diceColor.copy(alpha = 0.3f),
-                        disabledContainerColor = accent.copy(alpha = 0.1f)
-                    ),
-                    shape = RoundedCornerShape(12.dp)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = if (canAfford) "BUY $quantity" else "CAN'T AFFORD",
-                        color = if (canAfford) diceColor else Color(0xFF6B8CAE),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontFamily = FontFamily.Monospace
-                    )
+                    // Max button
+                    val maxQty = (coins / diceType.price).toInt().coerceAtLeast(1)
+                    Button(
+                        onClick = { onBuy(maxQty) },
+                        enabled = canAfford,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = diceColor.copy(alpha = 0.15f),
+                            disabledContainerColor = accent.copy(alpha = 0.1f)
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Text(
+                            text = "MAX $maxQty",
+                            color = if (canAfford) diceColor else Color(0xFF6B8CAE),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                    // Buy button
+                    Button(
+                        onClick = { onBuy(quantity) },
+                        enabled = canAfford,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = diceColor.copy(alpha = 0.3f),
+                            disabledContainerColor = accent.copy(alpha = 0.1f)
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = if (canAfford) "BUY $quantity" else "CAN'T AFFORD",
+                            color = if (canAfford) diceColor else Color(0xFF6B8CAE),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
                 }
             }
         }

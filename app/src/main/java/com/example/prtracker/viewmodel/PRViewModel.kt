@@ -238,6 +238,13 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
 
     fun maxEquipSlots(): Int = getUpgradeLevel(com.example.prtracker.data.PetUpgrade.EQUIP_SLOTS) + 2
 
+    fun equipBest() {
+        val best = _petInventory.value.sortedByDescending { it.xpMultiplier() }
+            .take(maxEquipSlots()).map { it.id }
+        _equippedPetIds.value = best
+        savePetData()
+    }
+
     fun sellPet(petId: String) {
         val pet = _petInventory.value.find { it.id == petId } ?: return
         _coins.value += pet.coinValue()
@@ -260,6 +267,19 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
             val soldIds = unfavorited.map { it.id }.toSet()
             _coins.value += totalCoins
             _petInventory.value = _petInventory.value.filter { it.isFavorited }
+            _equippedPetIds.value = _equippedPetIds.value.filter { it !in soldIds }
+            savePetData()
+        }
+        return totalCoins
+    }
+
+    fun sellPets(ids: Collection<String>): Long {
+        val selected = _petInventory.value.filter { it.id in ids && !it.isFavorited }
+        val totalCoins = selected.sumOf { it.coinValue().toLong() }
+        if (totalCoins > 0) {
+            val soldIds = selected.map { it.id }.toSet()
+            _coins.value += totalCoins
+            _petInventory.value = _petInventory.value.filter { it.id !in soldIds }
             _equippedPetIds.value = _equippedPetIds.value.filter { it !in soldIds }
             savePetData()
         }
@@ -1743,8 +1763,9 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
             _petInventory.value = _petInventory.value + pet
         }
 
-        val coinMultiplier = 1.0 + getUpgradeLevel(com.example.prtracker.data.PetUpgrade.COIN_MULTIPLIER) * 0.20
-        _coins.value += (pet.coinValue().toLong() * coinMultiplier).toLong()
+        val upgradeMult = 1.0 + getUpgradeLevel(com.example.prtracker.data.PetUpgrade.COIN_MULTIPLIER) * 0.20
+        val petCoinMult = petXpMultiplier().toDouble()
+        _coins.value += (pet.coinValue().toLong() * upgradeMult * petCoinMult).toLong()
 
         if (selectedRarity == com.example.prtracker.data.PetRarity.EPIC ||
             selectedRarity == com.example.prtracker.data.PetRarity.LEGENDARY ||

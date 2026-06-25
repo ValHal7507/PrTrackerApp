@@ -43,7 +43,7 @@ import com.example.prtracker.ui.theme.LocalAppearance
 import com.example.prtracker.ui.theme.systemAccentColor
 import com.example.prtracker.viewmodel.PRViewModel
 
-private fun formatCoins(value: Int): String =
+private fun formatCoins(value: Long): String =
     java.text.NumberFormat.getIntegerInstance().format(value)
 
 @Composable
@@ -105,7 +105,7 @@ fun PetUpgradesScreen(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = formatCoins(coins.toInt()),
+                    text = formatCoins(coins),
                     color = Color(0xFFFFD700),
                     style = MaterialTheme.typography.titleLarge,
                     fontFamily = FontFamily.Monospace
@@ -202,7 +202,7 @@ private fun UpgradeCard(
                     )
                 ) {
                     Text(
-                        text = if (isMaxed) "MAX" else formatCoins(nextCost.toInt()),
+                        text = if (isMaxed) "MAX" else formatCoins(nextCost),
                         color = if (isMaxed) Color(0xFF00FF85) else if (canAfford) Color(0xFFFFD700) else Color.Gray,
                         style = MaterialTheme.typography.titleMedium,
                         fontFamily = FontFamily.Monospace
@@ -244,7 +244,11 @@ private fun UpgradeCard(
             Spacer(modifier = Modifier.height(8.dp))
             val effectText = when (upgrade) {
                 PetUpgrade.LUCK -> "Luck: ${"%.1f".format(1.0 + currentLevel * 0.20)}x multiplier (+20% per level)"
-                PetUpgrade.ROLL_SPEED -> "Speed: ${maxOf(200, 1600 - currentLevel * 72)}ms delay (-72ms per level)"
+                PetUpgrade.ROLL_SPEED -> {
+                    val delay = maxOf(0, 1600 - currentLevel * 72)
+                    if (delay == 0) "Speed: 0ms (MAX)"
+                    else "Speed: ${delay}ms delay (-72ms per level)"
+                }
                 PetUpgrade.LUCKY_ROLL -> {
                     val boost = if (currentLevel > 0) 1.0 + currentLevel * 0.25 else 1.0
                     "Rarity boost: ${"%.2f".format(boost)}x on lucky rolls (+0.25x per level)"

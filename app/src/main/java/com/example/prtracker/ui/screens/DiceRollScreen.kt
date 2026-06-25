@@ -96,7 +96,7 @@ import kotlin.math.roundToInt
 
 private enum class DiceRollState { IDLE, ROLLING, REVEAL, PET_DETAIL }
 
-private fun formatCoins(value: Int): String =
+private fun formatCoins(value: Long): String =
     java.text.NumberFormat.getIntegerInstance().format(value)
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
@@ -120,7 +120,7 @@ fun DiceRollScreen(
     val maxSlots = viewModel.maxEquipSlots()
 
     val rollSpeedLevel = petUpgrades["roll_speed"] ?: 0
-    val rollDelay = maxOf(200L, 1600L - rollSpeedLevel * 72L)
+    val rollDelay = maxOf(0L, 1600L - rollSpeedLevel * 72L)
 
     val luckyRollLevel = petUpgrades["lucky_roll"] ?: 0
     val rollsUntilLucky = if (luckyRollLevel > 0) {
@@ -256,7 +256,7 @@ fun DiceRollScreen(
                         text = "\uD83E\uDE99",
                         fontSize = 14.sp
                     )
-                    val coinText = formatCoins(animatableCoins.value.roundToInt())
+                    val coinText = formatCoins(animatableCoins.value.toLong())
                     val coinFontSize = when {
                         coinText.length > 12 -> 10.sp
                         coinText.length > 9  -> 11.sp
@@ -288,7 +288,7 @@ fun DiceRollScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 2.dp),
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -302,7 +302,7 @@ fun DiceRollScreen(
                         .clickable { navController.navigate(Routes.DICE_INVENTORY) }
                         .background(accent.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
                         .border(1.dp, accent.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .padding(horizontal = 6.dp, vertical = 4.dp)
                 ) {
                     Text(text = "\uD83C\uDFB2", fontSize = 14.sp)
                     Text(
@@ -313,7 +313,7 @@ fun DiceRollScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(4.dp))
 
                 // Pet inventory button
                 Row(
@@ -324,7 +324,7 @@ fun DiceRollScreen(
                         .clickable { navController.navigate(Routes.PET_INVENTORY) }
                         .background(accent.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
                         .border(1.dp, accent.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .padding(horizontal = 6.dp, vertical = 4.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Inventory2,
@@ -340,7 +340,7 @@ fun DiceRollScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(4.dp))
 
                 // Dice shop button
                 Row(
@@ -351,7 +351,7 @@ fun DiceRollScreen(
                         .clickable { navController.navigate(Routes.DICE_SHOP) }
                         .background(accent.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
                         .border(1.dp, accent.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .padding(horizontal = 6.dp, vertical = 4.dp)
                 ) {
                     Text(text = "\uD83D\uDED2", fontSize = 14.sp)
                     Text(
@@ -696,15 +696,16 @@ private fun RevealView(
     ) {
         Box(
             modifier = Modifier
-                .size(200.dp)
+                .size(120.dp)
                 .shadow(24.dp, RoundedCornerShape(24.dp))
                 .background(rarityColor.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
                 .border(2.dp, rarityColor, RoundedCornerShape(24.dp)),
             contentAlignment = Alignment.Center
         ) {
             val species = PetCatalog.allSpecies.find { it.id == pet.speciesId }
-            Text(text = species?.emoji ?: "?", fontSize = 72.sp)
+            Text(text = species?.emoji ?: "?", fontSize = 48.sp)
         }
+
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -752,6 +753,17 @@ private fun RevealView(
 
         Spacer(modifier = Modifier.height(12.dp))
 
+        Text(
+            text = buildString {
+                repeat(pet.stars) { append("\u2605") }
+                repeat(5 - pet.stars) { append("\u2606") }
+            },
+            color = if (pet.stars >= 3) Color(0xFFFFD700) else rarityColor,
+            fontSize = 28.sp,
+            fontFamily = FontFamily.Monospace
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
         if (rollChances.isNotEmpty()) {
             val totalWeight = rollChances.values.sum()
             val rarityChance = rollChances[PetRarity.fromName(pet.rarity)] ?: 0.0
@@ -765,26 +777,6 @@ private fun RevealView(
                 fontFamily = FontFamily.Monospace
             )
             Spacer(modifier = Modifier.height(8.dp))
-        }
-
-        Text(
-            text = buildString {
-                repeat(pet.stars) { append("\u2605") }
-                repeat(5 - pet.stars) { append("\u2606") }
-            },
-            color = if (pet.stars >= 3) Color(0xFFFFD700) else rarityColor,
-            fontSize = 28.sp,
-            fontFamily = FontFamily.Monospace
-        )
-
-        if (pet.stars > 1) {
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "STAR LEVEL ${pet.stars}",
-                color = Color(0xFFFFD700),
-                style = MaterialTheme.typography.bodyMedium,
-                fontFamily = FontFamily.Monospace
-            )
         }
 
         Spacer(modifier = Modifier.height(16.dp))

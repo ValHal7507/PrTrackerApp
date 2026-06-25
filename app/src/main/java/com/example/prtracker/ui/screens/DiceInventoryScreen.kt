@@ -273,27 +273,85 @@ fun DiceInventoryScreen(
                             fontFamily = FontFamily.Monospace,
                             textAlign = TextAlign.Center
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        // USE button
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(40.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(diceColor.copy(alpha = 0.15f))
-                                .border(1.dp, diceColor.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-                                .clickable {
-                                    viewModel.useDiceByType(typeId, quantity.coerceIn(1, maxCount))
-                                    typeToActivate = null
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
+                        if (maxCount > 1) {
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "USE $quantity",
-                                color = diceColor,
-                                style = MaterialTheme.typography.labelLarge,
-                                fontFamily = FontFamily.Monospace
+                                text = "MAX = ${maxCount * diceType.rollsCount} ROLLS",
+                                color = diceColor.copy(alpha = 0.6f),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontFamily = FontFamily.Monospace,
+                                textAlign = TextAlign.Center
                             )
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        // USE / MAX buttons row
+                        if (maxCount > 1) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(40.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(diceColor.copy(alpha = 0.15f))
+                                        .border(1.dp, diceColor.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                                        .clickable {
+                                            viewModel.useDiceByType(typeId, quantity.coerceIn(1, maxCount))
+                                            typeToActivate = null
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "USE $quantity",
+                                        color = diceColor,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(40.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(diceColor.copy(alpha = 0.2f))
+                                        .border(1.dp, diceColor, RoundedCornerShape(10.dp))
+                                        .clickable {
+                                            viewModel.useDiceByType(typeId, maxCount)
+                                            typeToActivate = null
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "MAX",
+                                        color = diceColor,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(40.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(diceColor.copy(alpha = 0.15f))
+                                    .border(1.dp, diceColor.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                                    .clickable {
+                                        viewModel.useDiceByType(typeId, quantity.coerceIn(1, maxCount))
+                                        typeToActivate = null
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "USE $quantity",
+                                    color = diceColor,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                         TextButton(onClick = { typeToActivate = null }) {

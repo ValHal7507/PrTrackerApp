@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarOutline
@@ -86,7 +87,7 @@ internal enum class InventorySortMode(val label: String) {
     TYPE("TYPE"), RARITY("RARITY"), VALUE("VALUE"), XP("XP")
 }
 
-private fun formatCoins(value: Int): String =
+private fun formatCoins(value: Long): String =
     java.text.NumberFormat.getIntegerInstance().format(value)
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -110,6 +111,8 @@ fun PetInventoryScreen(
     var sortAscending by remember { mutableStateOf(false) }
     var showSellAllDialog by remember { mutableStateOf(false) }
     var showFuseAllDialog by remember { mutableStateOf(false) }
+    var isSelectMode by remember { mutableStateOf(false) }
+    var selectedPetIds by remember { mutableStateOf(setOf<String>()) }
 
     val filteredPets = petInventory.filter { pet ->
         if (searchQuery.isBlank()) true
@@ -137,6 +140,7 @@ fun PetInventoryScreen(
     val fusableCount = petInventory.count {
         it.stars == 5 && PetTier.fromName(it.tier) != PetTier.RED_MATTER
     }
+    val equipAvailableCount = petInventory.count { it.id !in equippedPetIds }
 
     Box(modifier = Modifier.fillMaxSize()) {
         GridBackground()
@@ -169,10 +173,24 @@ fun PetInventoryScreen(
                         )
                     }
                     Text(
-                        text = "INVENTORY (${petInventory.size})",
+                        text = if (isSelectMode) "SELECT (${selectedPetIds.size})" else "INVENTORY (${petInventory.size})",
                         color = accent,
                         style = MaterialTheme.typography.titleLarge,
                         fontFamily = FontFamily.Monospace
+                    )
+                }
+                IconButton(
+                    onClick = {
+                        isSelectMode = !isSelectMode
+                        if (!isSelectMode) selectedPetIds = emptySet()
+                        selectedPetId = null
+                    },
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isSelectMode) Icons.Default.Close else Icons.Default.Delete,
+                        contentDescription = if (isSelectMode) "Cancel selection" else "Select pets to sell",
+                        tint = if (isSelectMode) Color(0xFFFF4444) else accent
                     )
                 }
             }
@@ -340,61 +358,200 @@ fun PetInventoryScreen(
                             items = sortedPets,
                             key = { it.id }
                         ) { pet ->
-                            PetCollectionCard(
-                                pet = pet,
-                                accent = accent,
-                                isEquipped = equippedPetIds.contains(pet.id),
-                                onClick = { selectedPetId = pet.id },
-                                onLongClick = { viewModel.toggleFavorite(pet.id) }
-                            )
+                            if (isSelectMode) {
+                                val isSelected = pet.id in selectedPetIds
+                                val isSelectable = !pet.isFavorited
+                                PetCollectionCard(
+                                    pet = pet,
+                                    accent = accent,
+                                    isEquipped = equippedPetIds.contains(pet.id),
+                                    isSelected = isSelected,
+                                    isSelectable = isSelectable,
+                                    onClick = {
+                                        if (isSelectable) {
+                                            selectedPetIds = if (isSelected) {
+                                                selectedPetIds - pet.id
+                                            } else {
+                                                selectedPetIds + pet.id
+                                            }
+                                        }
+                                    },
+                                    onLongClick = { selectedPetId = pet.id }
+                                )
+                            } else {
+                                PetCollectionCard(
+                                    pet = pet,
+                                    accent = accent,
+                                    isEquipped = equippedPetIds.contains(pet.id),
+                                    onClick = { selectedPetId = pet.id },
+                                    onLongClick = { viewModel.toggleFavorite(pet.id) }
+                                )
+                            }
                         }
                     }
                 }
 
-                // ── Bulk action buttons ──────────────────────────────────────
-                if (fusableCount > 0 || unfavoritedCount > 0) {
+                // ── Bottom sell bar ──────────────────────────────────────────
+                if (isSelectMode && selectedPetIds.isNotEmpty()) {
+                    val selectableSelected = selectedPetIds.count { id ->
+                        petInventory.find { it.id == id }?.isFavorited != true
+                    }
+                    val totalValue = selectedPetIds.sumOf { id ->
+                        petInventory.find { it.id == id }?.coinValue()?.toLong() ?: 0L
+                    }
+                    var showMultiSellDialog by remember { mutableStateOf(false) }
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (fusableCount > 0) {
-                            Button(
-                                onClick = { showFuseAllDialog = true },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFFFFD700).copy(alpha = 0.15f)
-                                )
-                            ) {
-                                Text(
-                                    text = "FUSE ALL ($fusableCount)",
-                                    color = Color(0xFFFFD700),
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                            }
+                        Column {
+                            Text(
+                                text = "${selectableSelected} SELECTED",
+                                color = Color(0xFFE8F4FD),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                text = "VALUE: ${formatCoins(totalValue)}",
+                                color = Color(0xFFFFD700),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace
+                            )
                         }
-                        if (unfavoritedCount > 0) {
-                            Button(
-                                onClick = { showSellAllDialog = true },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFFFF4444).copy(alpha = 0.15f)
-                                )
-                            ) {
+                        Button(
+                            onClick = { showMultiSellDialog = true },
+                            enabled = selectableSelected > 0,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFFF4444).copy(alpha = 0.15f)
+                            )
+                        ) {
+                            Text(
+                                text = "SELL",
+                                color = Color(0xFFFF4444),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                    if (showMultiSellDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showMultiSellDialog = false },
+                            containerColor = Color(0xFF0D1526),
+                            title = {
                                 Text(
-                                    text = "SELL ALL ($unfavoritedCount)",
+                                    text = "SELL ${selectableSelected} PETS?",
                                     color = Color(0xFFFF4444),
-                                    style = MaterialTheme.typography.titleSmall,
                                     fontFamily = FontFamily.Monospace
                                 )
+                            },
+                            text = {
+                                Text(
+                                    text = "You will receive ${formatCoins(totalValue)} coins. Favorited pets will not be sold.",
+                                    color = Color(0xFF6B8CAE),
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        showMultiSellDialog = false
+                                        viewModel.sellPets(selectedPetIds)
+                                        selectedPetIds = emptySet()
+                                        isSelectMode = false
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFFFF4444).copy(alpha = 0.2f)
+                                    )
+                                ) {
+                                    Text("SELL", color = Color(0xFFFF4444), fontFamily = FontFamily.Monospace)
+                                }
+                            },
+                            dismissButton = {
+                                Button(
+                                    onClick = { showMultiSellDialog = false },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF6B8CAE).copy(alpha = 0.1f)
+                                    )
+                                ) {
+                                    Text("CANCEL", color = Color(0xFF6B8CAE), fontFamily = FontFamily.Monospace)
+                                }
+                            }
+                        )
+                    }
+                }
+
+                // ── Bulk action buttons ──────────────────────────────────────
+                if (!isSelectMode && (fusableCount > 0 || unfavoritedCount > 0 || equipAvailableCount > 0)) {
+                    if (equipAvailableCount > 0) {
+                        val slots = minOf(equipAvailableCount, maxSlots)
+                        Button(
+                            onClick = { viewModel.equipBest() },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                                .height(48.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = accent.copy(alpha = 0.15f)
+                            )
+                        ) {
+                            Text(
+                                text = "EQUIP BEST ($slots/$maxSlots)",
+                                color = accent,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    if (fusableCount > 0 || unfavoritedCount > 0) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (fusableCount > 0) {
+                                Button(
+                                    onClick = { showFuseAllDialog = true },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(48.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFFFFD700).copy(alpha = 0.15f)
+                                    )
+                                ) {
+                                    Text(
+                                        text = "FUSE $fusableCount",
+                                        color = Color(0xFFFFD700),
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                            if (unfavoritedCount > 0) {
+                                Button(
+                                    onClick = { showSellAllDialog = true },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(48.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFFFF4444).copy(alpha = 0.15f)
+                                    )
+                                ) {
+                                    Text(
+                                        text = "SELL $unfavoritedCount",
+                                        color = Color(0xFFFF4444),
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
                             }
                         }
                     }
@@ -419,7 +576,7 @@ fun PetInventoryScreen(
             },
             text = {
                 Text(
-                    text = "You will receive ${formatCoins(totalValue.toInt())} coins. Favorited pets will be kept.",
+                    text = "You will receive ${formatCoins(totalValue)} coins. Favorited pets will be kept.",
                     color = Color(0xFF6B8CAE),
                     fontFamily = FontFamily.Monospace
                 )
@@ -635,40 +792,11 @@ internal fun PetDetailView(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Favourite
-        Button(
-            onClick = { onFavorite() },
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = if (pet.isFavorited)
-                    Color(0xFFFFD700).copy(alpha = 0.15f)
-                else
-                    Color(0xFF6B8CAE).copy(alpha = 0.1f)
-            )
-        ) {
-            Icon(
-                imageVector = if (pet.isFavorited) Icons.Default.Star else Icons.Default.StarOutline,
-                contentDescription = "Favorite",
-                tint = if (pet.isFavorited) Color(0xFFFFD700) else Color(0xFF6B8CAE),
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = if (pet.isFavorited) "FAVORITED" else "FAVORITE",
-                color = if (pet.isFavorited) Color(0xFFFFD700) else Color(0xFF6B8CAE),
-                style = MaterialTheme.typography.titleMedium,
-                fontFamily = FontFamily.Monospace
-            )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
         // Fuse
         if (canFuse) {
             Button(
                 onClick = { onFuse() },
-                modifier = Modifier.fillMaxWidth().height(56.dp),
+                modifier = Modifier.fillMaxWidth().height(48.dp),
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = tierColor.copy(alpha = 0.15f)
@@ -677,74 +805,106 @@ internal fun PetDetailView(
                 Text(
                     text = "FUSE \u2192 ${nextTier!!.label}",
                     color = tierColor,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     fontFamily = FontFamily.Monospace
                 )
             }
             Spacer(modifier = Modifier.height(8.dp))
         }
 
-        // Sell
-        var showSellDialog by remember { mutableStateOf(false) }
-
-        Button(
-            onClick = { showSellDialog = true },
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFFFF4444).copy(alpha = 0.15f)
-            )
+        // Favourite + Sell row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(
-                text = "SELL FOR ${formatCoins(pet.coinValue())} COINS",
-                color = Color(0xFFFF4444),
-                style = MaterialTheme.typography.titleMedium,
-                fontFamily = FontFamily.Monospace
-            )
-        }
+            Button(
+                onClick = { onFavorite() },
+                modifier = Modifier.weight(1f).height(48.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (pet.isFavorited)
+                        Color(0xFFFFD700).copy(alpha = 0.15f)
+                    else
+                        Color(0xFF6B8CAE).copy(alpha = 0.1f)
+                )
+            ) {
+                Icon(
+                    imageVector = if (pet.isFavorited) Icons.Default.Star else Icons.Default.StarOutline,
+                    contentDescription = "Favorite",
+                    tint = if (pet.isFavorited) Color(0xFFFFD700) else Color(0xFF6B8CAE),
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = if (pet.isFavorited) "FAVORITED" else "FAVORITE",
+                    color = if (pet.isFavorited) Color(0xFFFFD700) else Color(0xFF6B8CAE),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
 
-        if (showSellDialog) {
-            AlertDialog(
-                onDismissRequest = { showSellDialog = false },
-                containerColor = Color(0xFF0D1526),
-                title = {
-                    Text(
-                        text = "SELL ${pet.name}?",
-                        color = Color(0xFFFF4444),
-                        fontFamily = FontFamily.Monospace
-                    )
-                },
-                text = {
-                    Text(
-                        text = "You will receive ${formatCoins(pet.coinValue())} coins.",
-                        color = Color(0xFF6B8CAE),
-                        fontFamily = FontFamily.Monospace
-                    )
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            showSellDialog = false
-                            onSell()
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFFF4444).copy(alpha = 0.2f)
+            // Sell
+            var showSellDialog by remember { mutableStateOf(false) }
+            Button(
+                onClick = { showSellDialog = true },
+                modifier = Modifier.weight(1f).height(48.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFFF4444).copy(alpha = 0.15f)
+                )
+            ) {
+                Text(
+                    text = "SELL ${formatCoins(pet.coinValue().toLong())}",
+                    color = Color(0xFFFF4444),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1
+                )
+            }
+
+            if (showSellDialog) {
+                AlertDialog(
+                    onDismissRequest = { showSellDialog = false },
+                    containerColor = Color(0xFF0D1526),
+                    title = {
+                        Text(
+                            text = "SELL ${pet.name}?",
+                            color = Color(0xFFFF4444),
+                            fontFamily = FontFamily.Monospace
                         )
-                    ) {
-                        Text("SELL", color = Color(0xFFFF4444), fontFamily = FontFamily.Monospace)
-                    }
-                },
-                dismissButton = {
-                    Button(
-                        onClick = { showSellDialog = false },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF6B8CAE).copy(alpha = 0.1f)
+                    },
+                    text = {
+                        Text(
+                            text = "You will receive ${formatCoins(pet.coinValue().toLong())} coins.",
+                            color = Color(0xFF6B8CAE),
+                            fontFamily = FontFamily.Monospace
                         )
-                    ) {
-                        Text("CANCEL", color = Color(0xFF6B8CAE), fontFamily = FontFamily.Monospace)
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                showSellDialog = false
+                                onSell()
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFFF4444).copy(alpha = 0.2f)
+                            )
+                        ) {
+                            Text("SELL", color = Color(0xFFFF4444), fontFamily = FontFamily.Monospace)
+                        }
+                    },
+                    dismissButton = {
+                        Button(
+                            onClick = { showSellDialog = false },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF6B8CAE).copy(alpha = 0.1f)
+                            )
+                        ) {
+                            Text("CANCEL", color = Color(0xFF6B8CAE), fontFamily = FontFamily.Monospace)
+                        }
                     }
-                }
-            )
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -764,6 +924,8 @@ internal fun PetCollectionCard(
     pet: Pet,
     accent: Color,
     isEquipped: Boolean,
+    isSelected: Boolean = false,
+    isSelectable: Boolean = true,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
@@ -859,6 +1021,24 @@ internal fun PetCollectionCard(
                     .align(Alignment.TopEnd)
                     .padding(4.dp)
                     .size(16.dp)
+            )
+        }
+        if (!isSelectable) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(Color(0x88000000))
+                    .clip(RoundedCornerShape(12.dp))
+            )
+        }
+        if (isSelected) {
+            Icon(
+                imageVector = Icons.Default.CheckCircle,
+                contentDescription = "Selected",
+                tint = Color(0xFF00FF85),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(32.dp)
             )
         }
         if (isEquipped) {
