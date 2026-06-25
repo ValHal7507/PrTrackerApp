@@ -33,7 +33,7 @@ enum class PetUpgrade(
     ) {
         override fun maxLevel(): Int? = 23
         override fun costForLevel(currentLevel: Int): Long =
-            (baseCost * 1.8.pow(currentLevel)).toLong()
+            (baseCost * 1.8.pow(currentLevel)).toLong().coerceAtMost(100_000_000L)
     },
     LUCKY_ROLL(
         id = "lucky_roll",
@@ -55,7 +55,7 @@ enum class PetUpgrade(
         if (fixedCosts != null) {
             return if (currentLevel < fixedCosts.size) fixedCosts[currentLevel] else Long.MAX_VALUE
         }
-        return (baseCost * 1.25.pow(currentLevel)).toLong()
+        return (baseCost * 1.25.pow(currentLevel)).toLong().coerceAtMost(100_000_000L)
     }
 
     fun nextLevelCost(currentLevel: Int): Long =

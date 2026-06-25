@@ -87,8 +87,17 @@ internal enum class InventorySortMode(val label: String) {
     TYPE("TYPE"), RARITY("RARITY"), VALUE("VALUE"), XP("XP")
 }
 
-private fun formatCoins(value: Long): String =
-    java.text.NumberFormat.getIntegerInstance().format(value)
+private fun formatCoins(value: Long): String = when {
+    value >= 1_000_000_000_000L -> String.format("%.1fT", value / 1_000_000_000_000.0)
+    value >= 1_000_000_000L -> String.format("%.1fB", value / 1_000_000_000.0)
+    value >= 100_000_000L   -> "${value / 1_000_000}M"
+    value >= 10_000_000L    -> String.format("%.1fM", value / 1_000_000.0)
+    value >= 1_000_000L     -> "${value / 1_000_000}M"
+    value >= 100_000L       -> "${value / 1_000}K"
+    value >= 10_000L        -> String.format("%.1fK", value / 1_000.0)
+    value >= 1_000L         -> "${value / 1_000}K"
+    else                    -> value.toString()
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -131,7 +140,7 @@ fun PetInventoryScreen(
                     InventorySortMode.TYPE   -> PetTier.fromName(it.tier).order
                     InventorySortMode.RARITY -> PetRarity.fromName(it.rarity).ordinal
                     InventorySortMode.VALUE  -> it.coinValue()
-                    InventorySortMode.XP     -> (it.xpMultiplier() * 1000).toInt()
+                    InventorySortMode.XP     -> (it.xpMultiplier(petInventory) * 1000).toInt()
                 }
             }
     ).let { list -> if (sortAscending) list.reversed() else list }
@@ -139,6 +148,7 @@ fun PetInventoryScreen(
     val unfavoritedCount = petInventory.count { !it.isFavorited }
     val fusableCount = petInventory.count {
         it.stars == 5 && PetTier.fromName(it.tier) != PetTier.RED_MATTER
+                && PetRarity.fromName(it.rarity) != PetRarity.SUPER
     }
     val equipAvailableCount = petInventory.count { it.id !in equippedPetIds }
 
@@ -316,6 +326,7 @@ fun PetInventoryScreen(
             if (selectedPet != null) {
                 PetDetailView(
                     pet = selectedPet,
+                    inventory = petInventory,
                     accent = accent,
                     isEquipped = equippedPetIds.contains(selectedPet.id),
                     canEquip = equippedPetIds.size < maxSlots,
@@ -487,7 +498,6 @@ fun PetInventoryScreen(
                 // ── Bulk action buttons ──────────────────────────────────────
                 if (!isSelectMode && (fusableCount > 0 || unfavoritedCount > 0 || equipAvailableCount > 0)) {
                     if (equipAvailableCount > 0) {
-                        val slots = minOf(equipAvailableCount, maxSlots)
                         Button(
                             onClick = { viewModel.equipBest() },
                             modifier = Modifier
@@ -500,7 +510,7 @@ fun PetInventoryScreen(
                             )
                         ) {
                             Text(
-                                text = "EQUIP BEST ($slots/$maxSlots)",
+                                text = "EQUIP BEST",
                                 color = accent,
                                 style = MaterialTheme.typography.labelLarge,
                                 fontFamily = FontFamily.Monospace
@@ -611,6 +621,7 @@ fun PetInventoryScreen(
     if (showFuseAllDialog) {
         val fusable = petInventory.filter {
             it.stars == 5 && PetTier.fromName(it.tier) != PetTier.RED_MATTER
+                    && PetRarity.fromName(it.rarity) != PetRarity.SUPER
         }
         AlertDialog(
             onDismissRequest = { showFuseAllDialog = false },
@@ -661,6 +672,7 @@ fun PetInventoryScreen(
 @Composable
 internal fun PetDetailView(
     pet: Pet,
+    inventory: List<Pet> = emptyList(),
     accent: Color,
     isEquipped: Boolean,
     canEquip: Boolean,
@@ -671,12 +683,13 @@ internal fun PetDetailView(
     onFavorite: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val isSuper = PetRarity.fromName(pet.rarity) == PetRarity.SUPER
     val tier = remember(pet.tier) { PetTier.fromName(pet.tier) }
     val tierColor = Color(tier.colorHex)
     val rarityColor = Color(PetRarity.fromName(pet.rarity).colorHex)
     val species = PetCatalog.allSpecies.find { it.id == pet.speciesId }
     val nextTier = remember(tier) { PetTier.nextTier(tier) }
-    val canFuse = pet.stars >= 5 && nextTier != null
+    val canFuse = !isSuper && pet.stars >= 5 && nextTier != null
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -739,21 +752,23 @@ internal fun PetDetailView(
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        if (!isSuper) {
+            Spacer(modifier = Modifier.height(12.dp))
 
-        Text(
-            text = buildString {
-                repeat(pet.stars) { append("\u2605") }
-                repeat(5 - pet.stars) { append("\u2606") }
-            },
-            color = if (pet.stars >= 3) Color(0xFFFFD700) else tierColor,
-            fontSize = 28.sp,
-            fontFamily = FontFamily.Monospace
-        )
+            Text(
+                text = buildString {
+                    repeat(pet.stars) { append("\u2605") }
+                    repeat(5 - pet.stars) { append("\u2606") }
+                },
+                color = if (pet.stars >= 3) Color(0xFFFFD700) else tierColor,
+                fontSize = 28.sp,
+                fontFamily = FontFamily.Monospace
+            )
+        }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(if (isSuper) 12.dp else 20.dp))
 
-        val xpMult = pet.xpMultiplier()
+        val xpMult = pet.xpMultiplier(inventory)
         if (xpMult > 1.0f) {
             Text(
                 text = "XP MULT: ${String.format("%.2fx", xpMult)}",
@@ -942,17 +957,54 @@ internal fun PetCollectionCard(
         Brush.linearGradient(listOf(rarityColor.copy(alpha = 0.7f), rarityColor))
     }
 
-    val bgTint = when (tier) {
-        PetTier.NORMAL      -> CardBackground
-        PetTier.SILVER      -> Color(0xFFC0C0C0).copy(alpha = 0.08f)
-        PetTier.GOLDEN      -> Color(0xFFFFD700).copy(alpha = 0.10f)
-        PetTier.RAINBOW     -> Color(0xFFFF44FF).copy(alpha = 0.08f)
-        PetTier.DARK_MATTER -> Color(0xFF6A0DAD).copy(alpha = 0.12f)
-        PetTier.RED_MATTER  -> Color(0xFFDC143C).copy(alpha = 0.10f)
+    val isSuper = rarity == PetRarity.SUPER
+    val superColor = Color(PetRarity.SUPER.colorHex)
+
+    val bgTint = when {
+        isSuper             -> superColor.copy(alpha = 0.12f)
+        tier == PetTier.NORMAL      -> CardBackground
+        tier == PetTier.SILVER      -> Color(0xFFC0C0C0).copy(alpha = 0.08f)
+        tier == PetTier.GOLDEN      -> Color(0xFFFFD700).copy(alpha = 0.10f)
+        tier == PetTier.RAINBOW     -> Color(0xFFFF44FF).copy(alpha = 0.08f)
+        tier == PetTier.DARK_MATTER -> Color(0xFF6A0DAD).copy(alpha = 0.12f)
+        tier == PetTier.RED_MATTER  -> Color(0xFFDC143C).copy(alpha = 0.10f)
+        else                -> CardBackground
     }
 
-    val contentModifier = when (tier) {
-        PetTier.SILVER -> Modifier.drawBehind {
+    val contentModifier = when {
+        isSuper -> {
+            val pulseAlpha by infiniteTransition.animateFloat(
+                initialValue = 0.10f,
+                targetValue = 0.25f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1200, easing = LinearEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "superGlow"
+            )
+            val shakeX by infiniteTransition.animateFloat(
+                initialValue = -2f,
+                targetValue = 2f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(300, easing = LinearEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "superShake"
+            )
+            Modifier
+                .drawBehind {
+                    drawCircle(
+                        color = superColor.copy(alpha = pulseAlpha),
+                        radius = size.minDimension * 0.65f
+                    )
+                    drawCircle(
+                        color = superColor.copy(alpha = pulseAlpha * 0.5f),
+                        radius = size.minDimension * 0.8f
+                    )
+                }
+                .offset { IntOffset(shakeX.roundToInt(), 0) }
+        }
+        tier == PetTier.SILVER -> Modifier.drawBehind {
             val shimmerX = (size.width * 0.3f) + (size.width * 0.4f *
                     ((System.currentTimeMillis() % 3000L) / 3000f))
             drawLine(
@@ -962,7 +1014,7 @@ internal fun PetCollectionCard(
                 strokeWidth = 8.dp.toPx()
             )
         }
-        PetTier.RAINBOW -> {
+        tier == PetTier.RAINBOW -> {
             val hue by infiniteTransition.animateFloat(
                 initialValue = 0f,
                 targetValue = 360f,
@@ -974,13 +1026,13 @@ internal fun PetCollectionCard(
             )
             Modifier.background(Color.hsl(hue, 0.6f, 0.1f), RoundedCornerShape(12.dp))
         }
-        PetTier.DARK_MATTER -> Modifier.drawBehind {
+        tier == PetTier.DARK_MATTER -> Modifier.drawBehind {
             drawCircle(
                 color = Color(0xFF9B30FF).copy(alpha = 0.08f),
                 radius = size.minDimension * 0.6f
             )
         }
-        PetTier.RED_MATTER -> {
+        tier == PetTier.RED_MATTER -> {
             val shakeX by infiniteTransition.animateFloat(
                 initialValue = -2f,
                 targetValue = 2f,
@@ -1057,15 +1109,17 @@ internal fun PetCollectionCard(
             verticalArrangement = Arrangement.Center
         ) {
             Text(text = species?.emoji ?: "?", fontSize = 28.sp)
-            Text(
-                text = buildString {
-                    repeat(pet.stars) { append("\u2605") }
-                    repeat(5 - pet.stars) { append("\u2606") }
-                },
-                color = if (pet.stars >= 3) Color(0xFFFFD700) else tierColor,
-                fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace
-            )
+            if (!isSuper) {
+                Text(
+                    text = buildString {
+                        repeat(pet.stars) { append("\u2605") }
+                        repeat(5 - pet.stars) { append("\u2606") }
+                    },
+                    color = if (pet.stars >= 3) Color(0xFFFFD700) else tierColor,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
             if (tier != PetTier.NORMAL) {
                 Text(
                     text = tier.label,

@@ -43,8 +43,17 @@ import com.example.prtracker.ui.theme.LocalAppearance
 import com.example.prtracker.ui.theme.systemAccentColor
 import com.example.prtracker.viewmodel.PRViewModel
 
-private fun formatCoins(value: Long): String =
-    java.text.NumberFormat.getIntegerInstance().format(value)
+private fun formatCoins(value: Long): String = when {
+    value >= 1_000_000_000_000L -> String.format("%.1fT", value / 1_000_000_000_000.0)
+    value >= 1_000_000_000L -> String.format("%.1fB", value / 1_000_000_000.0)
+    value >= 100_000_000L   -> "${value / 1_000_000}M"
+    value >= 10_000_000L    -> String.format("%.1fM", value / 1_000_000.0)
+    value >= 1_000_000L     -> "${value / 1_000_000}M"
+    value >= 100_000L       -> "${value / 1_000}K"
+    value >= 10_000L        -> String.format("%.1fK", value / 1_000.0)
+    value >= 1_000L         -> "${value / 1_000}K"
+    else                    -> value.toString()
+}
 
 @Composable
 fun PetUpgradesScreen(

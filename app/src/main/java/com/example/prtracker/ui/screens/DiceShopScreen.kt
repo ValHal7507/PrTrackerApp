@@ -52,8 +52,17 @@ import com.example.prtracker.ui.theme.systemAccentColor
 import com.example.prtracker.viewmodel.PRViewModel
 import java.text.NumberFormat
 
-private fun formatCoins(value: Long): String =
-    NumberFormat.getIntegerInstance().format(value)
+private fun formatCoins(value: Long): String = when {
+    value >= 1_000_000_000_000L -> String.format("%.1fT", value / 1_000_000_000_000.0)
+    value >= 1_000_000_000L -> String.format("%.1fB", value / 1_000_000_000.0)
+    value >= 100_000_000L   -> "${value / 1_000_000}M"
+    value >= 10_000_000L    -> String.format("%.1fM", value / 1_000_000.0)
+    value >= 1_000_000L     -> "${value / 1_000_000}M"
+    value >= 100_000L       -> "${value / 1_000}K"
+    value >= 10_000L        -> String.format("%.1fK", value / 1_000.0)
+    value >= 1_000L         -> "${value / 1_000}K"
+    else                    -> value.toString()
+}
 
 @Composable
 fun DiceShopScreen(
@@ -166,6 +175,7 @@ private fun DiceShopCard(
     onBuy: (Int) -> Unit
 ) {
     val diceColor = diceType.toColor()
+    val textColor = if (diceType == SpecialDiceType.SUPER_DICE) Color(0xFFE8F4FD) else diceColor
     val accent = LocalAppearance.current.systemAccentColor
     var quantity by remember(diceType) { mutableStateOf(1) }
     var quantityText by remember(diceType) { mutableStateOf("1") }
@@ -190,13 +200,13 @@ private fun DiceShopCard(
                 Column {
                     Text(
                         text = diceType.displayName,
-                        color = diceColor,
+                        color = textColor,
                         style = MaterialTheme.typography.titleMedium,
                         fontFamily = FontFamily.Monospace
                     )
                     Text(
                         text = diceType.description,
-                        color = diceColor.copy(alpha = 0.7f),
+                        color = textColor.copy(alpha = 0.7f),
                         style = MaterialTheme.typography.bodySmall,
                         fontFamily = FontFamily.Monospace
                     )
@@ -220,7 +230,7 @@ private fun DiceShopCard(
                 ) {
                     Text(
                         text = "FOR ${diceType.rollsCount} ROLLS",
-                        color = diceColor,
+                        color = textColor,
                         style = MaterialTheme.typography.labelSmall,
                         fontFamily = FontFamily.Monospace
                     )
@@ -259,7 +269,7 @@ private fun DiceShopCard(
                 ) {
                     Text(
                         text = "\u2212",
-                        color = if (quantity > 1) diceColor else diceColor.copy(alpha = 0.3f),
+                        color = if (quantity > 1) textColor else textColor.copy(alpha = 0.3f),
                         fontSize = 16.sp,
                         fontFamily = FontFamily.Monospace
                     )
@@ -280,7 +290,7 @@ private fun DiceShopCard(
                     modifier = Modifier.width(50.dp).height(36.dp),
                     singleLine = true,
                     textStyle = MaterialTheme.typography.titleSmall.copy(
-                        color = diceColor,
+                        color = textColor,
                         fontFamily = FontFamily.Monospace,
                         textAlign = TextAlign.Center
                     ),
@@ -300,7 +310,7 @@ private fun DiceShopCard(
                 ) {
                     Text(
                         text = "+",
-                        color = diceColor,
+                        color = textColor,
                         fontSize = 16.sp,
                         fontFamily = FontFamily.Monospace
                     )
@@ -318,7 +328,8 @@ private fun DiceShopCard(
                 // Price pill
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.weight(1f, fill = false)
                 ) {
                     Text(text = "\uD83E\uDE99", fontSize = 14.sp)
                     Text(
@@ -327,18 +338,11 @@ private fun DiceShopCard(
                         style = MaterialTheme.typography.bodyMedium,
                         fontFamily = FontFamily.Monospace
                     )
-                    if (quantity > 1) {
-                        Text(
-                            text = "(\u00D7$quantity)",
-                            color = TextSecondary,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
+
                 }
 
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Max button
@@ -354,12 +358,13 @@ private fun DiceShopCard(
                         modifier = Modifier.height(32.dp)
                     ) {
                         Text(
-                            text = "MAX $maxQty",
-                            color = if (canAfford) diceColor else Color(0xFF6B8CAE),
+                            text = "MAX ${formatCoins(maxQty.toLong())}",
+                            color = if (canAfford) textColor else Color(0xFF6B8CAE),
                             style = MaterialTheme.typography.labelSmall,
                             fontFamily = FontFamily.Monospace
                         )
                     }
+                    Spacer(modifier = Modifier.width(6.dp))
                     // Buy button
                     Button(
                         onClick = { onBuy(quantity) },
@@ -371,8 +376,8 @@ private fun DiceShopCard(
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Text(
-                            text = if (canAfford) "BUY $quantity" else "CAN'T AFFORD",
-                            color = if (canAfford) diceColor else Color(0xFF6B8CAE),
+                            text = if (canAfford) "BUY ${formatCoins(quantity.toLong())}" else "CAN'T AFFORD",
+                            color = if (canAfford) textColor else Color(0xFF6B8CAE),
                             style = MaterialTheme.typography.labelMedium,
                             fontFamily = FontFamily.Monospace
                         )

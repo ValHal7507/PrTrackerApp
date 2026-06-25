@@ -228,10 +228,11 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
     fun petXpMultiplier(): Float {
         val equipped = _equippedPetIds.value
         if (equipped.isEmpty()) return 1.0f
+        val inventory = _petInventory.value
         var mult = 1.0f
         for (id in equipped) {
-            val pet = _petInventory.value.find { it.id == id } ?: continue
-            mult += pet.xpMultiplier() - 1.0f
+            val pet = inventory.find { it.id == id } ?: continue
+            mult += pet.xpMultiplier(inventory) - 1.0f
         }
         return mult.coerceAtLeast(1.0f)
     }
@@ -239,7 +240,8 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
     fun maxEquipSlots(): Int = getUpgradeLevel(com.example.prtracker.data.PetUpgrade.EQUIP_SLOTS) + 2
 
     fun equipBest() {
-        val best = _petInventory.value.sortedByDescending { it.xpMultiplier() }
+        val inventory = _petInventory.value
+        val best = inventory.sortedByDescending { it.xpMultiplier(inventory) }
             .take(maxEquipSlots()).map { it.id }
         _equippedPetIds.value = best
         savePetData()
@@ -1329,7 +1331,9 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
             xpBootstrapped = true,
             potionInventory = _potionInventory.value,
             lastPotionEarnedTimestamp = _lastPotionEarnedTimestamp.value,
-            miniGameHighScore = _miniGameHighScore.value
+            miniGameHighScore = _miniGameHighScore.value,
+            diceInventory = _diceInventory.value,
+            activeDiceEffects = _activeDiceEffects.value
         )
         return Gson().toJson(fullData)
     }
@@ -1364,7 +1368,10 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
             rollsSinceMythical = _rollsSinceMythical.value,
             lastDiceRollTimestamp = _lastDiceRollTimestamp.value,
             coins = _coins.value,
-            petUpgrades = _petUpgrades.value
+            petUpgrades = _petUpgrades.value,
+            equippedPetIds = _equippedPetIds.value,
+            diceInventory = _diceInventory.value,
+            activeDiceEffects = _activeDiceEffects.value
         )
         return Gson().toJson(petData)
     }
@@ -1650,13 +1657,58 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
         val isLuckyRoll = luckyRollLevel > 0 &&
                 _totalRolls.value % 5 == 0
 
+        // Look up active dice effect (strongest first) — needed before SUPER check
+        val activeDice = _activeDiceEffects.value.firstOrNull()
+        val activeDiceType = activeDice?.diceType
+        val isSuperDiceActive = activeDiceType == com.example.prtracker.data.SpecialDiceType.SUPER_DICE
+
+        // SUPER check — flat 1 in 10,000 (unaffected by luck/dice/pity), OR guaranteed if SUPER DICE active
+        if (isSuperDiceActive || Math.random() < 0.0001) {
+            val speciesList = com.example.prtracker.data.PetCatalog.speciesForRarity(com.example.prtracker.data.PetRarity.SUPER)
+            val species = speciesList.random()
+            val targetTier = if (isLuckyRoll) {
+                when {
+                    luckyRollLevel > 200 -> com.example.prtracker.data.PetTier.RED_MATTER.name
+                    luckyRollLevel > 150 -> com.example.prtracker.data.PetTier.DARK_MATTER.name
+                    luckyRollLevel > 100 -> com.example.prtracker.data.PetTier.RAINBOW.name
+                    luckyRollLevel > 50  -> com.example.prtracker.data.PetTier.GOLDEN.name
+                    luckyRollLevel > 0   -> com.example.prtracker.data.PetTier.SILVER.name
+                    else                 -> com.example.prtracker.data.PetTier.NORMAL.name
+                }
+            } else {
+                com.example.prtracker.data.PetTier.NORMAL.name
+            }
+            val pet = com.example.prtracker.data.Pet(
+                speciesId = species.id,
+                name = species.name,
+                rarity = com.example.prtracker.data.PetRarity.SUPER.name,
+                stars = 1,
+                tier = targetTier,
+                rollNumber = _totalRolls.value
+            )
+            _petInventory.value = _petInventory.value + pet
+            _coins.value += 500_000_000_000L
+            _rollsSinceEpicOrAbove.value = 0
+            _rollsSinceLegendary.value = 0
+            _rollsSinceMythical.value = 0
+            decrementActiveDiceEffects()
+            _lastDiceRollTimestamp.value = System.currentTimeMillis()
+            savePetData()
+            return com.example.prtracker.data.RollResult(pet, emptyMap(), isLuckyRoll)
+        }
+
         val roll = Math.random()
 
         val effectiveChances = mutableMapOf<com.example.prtracker.data.PetRarity, Double>()
         for (rarity in com.example.prtracker.data.PetRarity.entries) {
-            effectiveChances[rarity] = rarity.dropChance
+            effectiveChances[rarity] = if (activeDiceType?.baseChances != null) {
+                activeDiceType.baseChances[rarity] ?: 0.0
+            } else {
+                rarity.dropChance
+            }
         }
 
+        // Apply luck upgrade multiplier to all non-COMMON rarities
         if (luckMultiplier > 1.0) {
             for (rarity in com.example.prtracker.data.PetRarity.entries) {
                 if (rarity != com.example.prtracker.data.PetRarity.COMMON) {
@@ -1665,29 +1717,28 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        if (_rollsSinceEpicOrAbove.value > 150) {
+        // Soft pity — only for non-custom dice distributions (custom ones already have generous rates)
+        if (activeDiceType?.baseChances == null && _rollsSinceEpicOrAbove.value > 150) {
             val bonus = (_rollsSinceEpicOrAbove.value - 150) * 0.01 * luckMultiplier
             effectiveChances[com.example.prtracker.data.PetRarity.EPIC] =
                 (effectiveChances[com.example.prtracker.data.PetRarity.EPIC] ?: 0.0) + bonus
         }
 
+        // Hard pity — guaranteed legendary at 401 rolls
         if (_rollsSinceLegendary.value >= 401) {
             effectiveChances[com.example.prtracker.data.PetRarity.LEGENDARY] = 1.0
         }
 
+        // Hard pity — guaranteed mythical at 2001 rolls
         if (_rollsSinceMythical.value >= 2001) {
             effectiveChances[com.example.prtracker.data.PetRarity.MYTHICAL] = 1.0
         }
 
-        // Apply active dice effect filter (strongest first)
-        val activeDice = _activeDiceEffects.value.firstOrNull()
-        if (activeDice != null) {
-            val diceType = activeDice.diceType
-            if (diceType != null) {
-                for (rarity in com.example.prtracker.data.PetRarity.entries) {
-                    if (rarity.ordinal < diceType.minRarity.ordinal || rarity.ordinal > diceType.maxRarity.ordinal) {
-                        effectiveChances[rarity] = 0.0
-                    }
+        // Apply active dice effect filter (only for dice without custom baseChances)
+        if (activeDiceType != null && activeDiceType.baseChances == null) {
+            for (rarity in com.example.prtracker.data.PetRarity.entries) {
+                if (rarity.ordinal < activeDiceType.minRarity.ordinal || rarity.ordinal > activeDiceType.maxRarity.ordinal) {
+                    effectiveChances[rarity] = 0.0
                 }
             }
         }
@@ -1789,6 +1840,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
 
     fun fusePet(petId: String) {
         val pet = _petInventory.value.find { it.id == petId } ?: return
+        if (com.example.prtracker.data.PetRarity.fromName(pet.rarity) == com.example.prtracker.data.PetRarity.SUPER) return
         val currentTier = com.example.prtracker.data.PetTier.fromName(pet.tier)
         val nextTier = com.example.prtracker.data.PetTier.nextTier(currentTier) ?: return
 
@@ -1823,6 +1875,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
     fun fuseAllPets(): Int {
         val fusable = _petInventory.value.filter { pet ->
             pet.stars == 5 && com.example.prtracker.data.PetTier.fromName(pet.tier) != com.example.prtracker.data.PetTier.RED_MATTER
+                    && com.example.prtracker.data.PetRarity.fromName(pet.rarity) != com.example.prtracker.data.PetRarity.SUPER
         }
         if (fusable.isEmpty()) return 0
 

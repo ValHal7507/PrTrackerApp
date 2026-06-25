@@ -96,8 +96,17 @@ import kotlin.math.roundToInt
 
 private enum class DiceRollState { IDLE, ROLLING, REVEAL, PET_DETAIL }
 
-private fun formatCoins(value: Long): String =
-    java.text.NumberFormat.getIntegerInstance().format(value)
+private fun formatCoins(value: Long): String = when {
+    value >= 1_000_000_000_000L -> String.format("%.1fT", value / 1_000_000_000_000.0)
+    value >= 1_000_000_000L -> String.format("%.1fB", value / 1_000_000_000.0)
+    value >= 100_000_000L   -> "${value / 1_000_000}M"
+    value >= 10_000_000L    -> String.format("%.1fM", value / 1_000_000.0)
+    value >= 1_000_000L     -> "${value / 1_000_000}M"
+    value >= 100_000L       -> "${value / 1_000}K"
+    value >= 10_000L        -> String.format("%.1fK", value / 1_000.0)
+    value >= 1_000L         -> "${value / 1_000}K"
+    else                    -> value.toString()
+}
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -442,6 +451,7 @@ fun DiceRollScreen(
                 selectedPetForDetail?.let { pet ->
                     PetDetailView(
                         pet = pet,
+                        inventory = petInventory,
                         accent = accent,
                         isEquipped = equippedPetIds.contains(pet.id),
                         canEquip = equippedPetIds.size < maxSlots,
@@ -495,31 +505,23 @@ fun DiceRollScreen(
                             .height(220.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        when (rollState) {
-                            DiceRollState.IDLE, DiceRollState.REVEAL -> {
-                                IdleDiceView(
-                                    accent = accent,
-                                    isLuckyReady = rollsUntilLucky == 1 && luckyRollLevel > 0,
-                                    activeDiceColor = activeDiceColor,
-                                    rollsLeft = if (activeEffect != null) rollsLeft else 0,
-                                    onRoll = {
-                                        rollState = DiceRollState.ROLLING
-                                        rotationX += 720f
-                                        rotationY += 1080f
-                                    }
-                                )
-                            }
-                            DiceRollState.ROLLING -> {
-                                RollingDiceView(
-                                    rotationX = animatedRotationX,
-                                    rotationY = animatedRotationY,
-                                    accent = accent,
-                                    isLuckyReady = rollsUntilLucky == 1 && luckyRollLevel > 0,
-                                    activeDiceColor = activeDiceColor
-                                )
-                            }
-                            else -> {}
-                        }
+                        DiceView(
+                            rotationX = animatedRotationX,
+                            rotationY = animatedRotationY,
+                            isRolling = rollState == DiceRollState.ROLLING,
+                            accent = accent,
+                            isLuckyReady = rollsUntilLucky == 1 && luckyRollLevel > 0,
+                            activeDiceColor = activeDiceColor,
+                            isSuperDice = activeEffectDiceType == SpecialDiceType.SUPER_DICE,
+                            rollsLeft = if (activeEffect != null) rollsLeft else 0,
+                            onRoll = if (rollState != DiceRollState.ROLLING) {
+                                {
+                                    rollState = DiceRollState.ROLLING
+                                    rotationX += 720f
+                                    rotationY += 1080f
+                                }
+                            } else null
+                        )
                     }
                 }
             }
@@ -567,25 +569,64 @@ fun DiceRollScreen(
 // ── Sub-composables ───────────────────────────────────────────────────────────
 
 @Composable
-private fun IdleDiceView(
+private fun DiceView(
+    rotationX: Float,
+    rotationY: Float,
+    isRolling: Boolean,
     accent: Color,
     isLuckyReady: Boolean,
     activeDiceColor: Color? = null,
+    isSuperDice: Boolean = false,
     rollsLeft: Int = 0,
     onRoll: (() -> Unit)? = null
 ) {
     val diceColor = activeDiceColor ?: if (isLuckyReady) Color(0xFFC0C0C0) else accent
     val borderColor = activeDiceColor ?: diceColor
+    val superColor = Color(0xFF001B3D)
+
+    val infiniteTransition = rememberInfiniteTransition(label = "diceSuper")
+    val superPulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.10f,
+        targetValue = 0.30f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "superPulse"
+    )
+    val superShakeX by infiniteTransition.animateFloat(
+        initialValue = -3f,
+        targetValue = 3f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(300, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "superShake"
+    )
+
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             modifier = Modifier
                 .size(160.dp)
                 .then(if (onRoll != null) Modifier.clickable { onRoll() } else Modifier)
                 .shadow(16.dp, RoundedCornerShape(24.dp))
-                .background(diceColor.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
+                .background(diceColor.copy(alpha = if (isRolling) 0.2f else 0.15f), RoundedCornerShape(24.dp))
                 .border(2.dp, borderColor, RoundedCornerShape(24.dp))
                 .then(
-                    if (activeDiceColor != null) Modifier.drawBehind {
+                    if (isSuperDice) {
+                        Modifier
+                            .drawBehind {
+                                drawCircle(
+                                    color = superColor.copy(alpha = superPulseAlpha),
+                                    radius = size.minDimension * 0.65f
+                                )
+                                drawCircle(
+                                    color = superColor.copy(alpha = superPulseAlpha * 0.5f),
+                                    radius = size.minDimension * 0.8f
+                                )
+                            }
+                            .offset { IntOffset(superShakeX.roundToInt(), 0) }
+                    } else if (activeDiceColor != null) Modifier.drawBehind {
                         val pulseAlpha = 0.15f + 0.1f * kotlin.math.sin(
                             System.currentTimeMillis() / 300.0
                         ).toFloat()
@@ -608,71 +649,28 @@ private fun IdleDiceView(
         ) {
             Icon(
                 imageVector = Icons.Default.Casino,
-                contentDescription = "Roll Dice",
+                contentDescription = if (onRoll != null) "Roll Dice" else "Dice",
                 tint = diceColor,
-                modifier = Modifier.size(80.dp)
+                modifier = Modifier
+                    .size(80.dp)
+                    .then(
+                        if (isRolling) Modifier.graphicsLayer {
+                            this.rotationX = rotationX
+                            this.rotationY = rotationY
+                        } else Modifier
+                    )
             )
         }
         Spacer(modifier = Modifier.height(16.dp))
-        if (onRoll != null) {
-            Text(
-                text = if (rollsLeft > 0) "ROLL ($rollsLeft LEFT)" else "TAP TO ROLL",
-                color = diceColor,
-                style = MaterialTheme.typography.titleLarge,
-                fontFamily = FontFamily.Monospace
-            )
-        }
-    }
-}
-
-@Composable
-private fun RollingDiceView(
-    rotationX: Float,
-    rotationY: Float,
-    accent: Color,
-    isLuckyReady: Boolean,
-    activeDiceColor: Color? = null
-) {
-    val diceColor = activeDiceColor ?: if (isLuckyReady) Color(0xFFC0C0C0) else accent
-    val borderColor = activeDiceColor ?: diceColor
-    Box(
-        modifier = Modifier
-            .size(160.dp)
-            .shadow(16.dp, RoundedCornerShape(24.dp))
-            .background(diceColor.copy(alpha = 0.2f), RoundedCornerShape(24.dp))
-            .border(2.dp, borderColor, RoundedCornerShape(24.dp))
-            .then(
-                if (activeDiceColor != null) Modifier.drawBehind {
-                    val pulseAlpha = 0.15f + 0.1f * kotlin.math.sin(
-                        System.currentTimeMillis() / 300.0
-                    ).toFloat()
-                    drawCircle(
-                        color = activeDiceColor.copy(alpha = pulseAlpha),
-                        radius = size.width * 0.55f
-                    )
-                } else if (isLuckyReady) Modifier.drawBehind {
-                    val shimmerX = (size.width * 0.3f) + (size.width * 0.4f *
-                            ((System.currentTimeMillis() % 3000L) / 3000f))
-                    drawLine(
-                        color = Color.White.copy(alpha = 0.15f),
-                        start = Offset(shimmerX - 20.dp.toPx(), 0f),
-                        end = Offset(shimmerX + 20.dp.toPx(), size.height),
-                        strokeWidth = 8.dp.toPx()
-                    )
-                } else Modifier
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            imageVector = Icons.Default.Casino,
-            contentDescription = "Dice",
-            tint = diceColor,
-            modifier = Modifier
-                .size(80.dp)
-                .graphicsLayer {
-                    this.rotationX = rotationX
-                    this.rotationY = rotationY
-                }
+        Text(
+            text = when {
+                isRolling -> "ROLLING..."
+                rollsLeft > 0 -> "ROLL ($rollsLeft LEFT)"
+                else -> "TAP TO ROLL"
+            },
+            color = diceColor,
+            style = MaterialTheme.typography.titleLarge,
+            fontFamily = FontFamily.Monospace
         )
     }
 }
@@ -685,6 +683,55 @@ private fun RevealView(
     rollChances: Map<PetRarity, Double>,
     onDismiss: () -> Unit
 ) {
+    val isSuper = PetRarity.fromName(pet.rarity) == PetRarity.SUPER
+    val superColor = Color(PetRarity.SUPER.colorHex)
+    val infiniteTransition = rememberInfiniteTransition(label = "revealSuper")
+
+    val revealBoxModifier = if (isSuper) {
+        val pulseAlpha by infiniteTransition.animateFloat(
+            initialValue = 0.10f,
+            targetValue = 0.30f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1200, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "superGlow"
+        )
+        val shakeX by infiniteTransition.animateFloat(
+            initialValue = -2f,
+            targetValue = 2f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(300, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "superShake"
+        )
+        Modifier
+            .size(120.dp)
+            .shadow(24.dp, RoundedCornerShape(24.dp))
+            .background(superColor.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
+            .border(2.dp, superColor, RoundedCornerShape(24.dp))
+            .drawBehind {
+                drawCircle(
+                    color = superColor.copy(alpha = pulseAlpha),
+                    radius = size.minDimension * 0.65f
+                )
+                drawCircle(
+                    color = superColor.copy(alpha = pulseAlpha * 0.5f),
+                    radius = size.minDimension * 0.8f
+                )
+            }
+            .offset { IntOffset(shakeX.roundToInt(), 0) }
+    } else {
+        Modifier
+            .size(120.dp)
+            .shadow(24.dp, RoundedCornerShape(24.dp))
+            .background(rarityColor.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
+            .border(2.dp, rarityColor, RoundedCornerShape(24.dp))
+    }
+
+    val displayColor = if (isSuper) superColor else rarityColor
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
@@ -695,23 +742,18 @@ private fun RevealView(
             .padding(24.dp)
     ) {
         Box(
-            modifier = Modifier
-                .size(120.dp)
-                .shadow(24.dp, RoundedCornerShape(24.dp))
-                .background(rarityColor.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
-                .border(2.dp, rarityColor, RoundedCornerShape(24.dp)),
+            modifier = revealBoxModifier,
             contentAlignment = Alignment.Center
         ) {
             val species = PetCatalog.allSpecies.find { it.id == pet.speciesId }
-            Text(text = species?.emoji ?: "?", fontSize = 48.sp)
+            Text(text = species?.emoji ?: "?", fontSize = if (isSuper) 56.sp else 48.sp)
         }
-
 
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
             text = pet.name,
-            color = rarityColor,
+            color = displayColor,
             style = MaterialTheme.typography.headlineLarge,
             fontFamily = FontFamily.Monospace
         )
@@ -722,13 +764,13 @@ private fun RevealView(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
-                    .background(rarityColor.copy(alpha = 0.2f))
-                    .border(1.dp, rarityColor, RoundedCornerShape(8.dp))
+                    .background(displayColor.copy(alpha = 0.2f))
+                    .border(1.dp, displayColor, RoundedCornerShape(8.dp))
                     .padding(horizontal = 16.dp, vertical = 4.dp)
             ) {
                 Text(
                     text = pet.rarity,
-                    color = rarityColor,
+                    color = displayColor,
                     style = MaterialTheme.typography.titleMedium,
                     fontFamily = FontFamily.Monospace
                 )
@@ -751,17 +793,19 @@ private fun RevealView(
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        if (!isSuper) {
+            Spacer(modifier = Modifier.height(12.dp))
 
-        Text(
-            text = buildString {
-                repeat(pet.stars) { append("\u2605") }
-                repeat(5 - pet.stars) { append("\u2606") }
-            },
-            color = if (pet.stars >= 3) Color(0xFFFFD700) else rarityColor,
-            fontSize = 28.sp,
-            fontFamily = FontFamily.Monospace
-        )
+            Text(
+                text = buildString {
+                    repeat(pet.stars) { append("\u2605") }
+                    repeat(5 - pet.stars) { append("\u2606") }
+                },
+                color = if (pet.stars >= 3) Color(0xFFFFD700) else displayColor,
+                fontSize = 28.sp,
+                fontFamily = FontFamily.Monospace
+            )
+        }
 
         Spacer(modifier = Modifier.height(12.dp))
         if (rollChances.isNotEmpty()) {
@@ -772,8 +816,18 @@ private fun RevealView(
             } else 2
             Text(
                 text = "1 in $oneInX CHANCE",
-                color = rarityColor.copy(alpha = 0.7f),
+                color = displayColor.copy(alpha = 0.7f),
                 style = MaterialTheme.typography.bodyMedium,
+                fontFamily = FontFamily.Monospace
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
+        if (isSuper) {
+            Text(
+                text = "\u2B50 LEGENDARY DISCOVERY \u2B50",
+                color = superColor,
+                style = MaterialTheme.typography.titleMedium,
                 fontFamily = FontFamily.Monospace
             )
             Spacer(modifier = Modifier.height(8.dp))

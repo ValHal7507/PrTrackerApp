@@ -16,14 +16,27 @@ data class Pet(
     val isFavorited: Boolean = false
 )
 
-fun Pet.coinValue(): Int {
-    val base = PetRarity.fromName(rarity).baseCoins
+fun Pet.coinValue(): Long {
+    val rarity = PetRarity.fromName(rarity)
+    if (rarity == PetRarity.SUPER) {
+        return (rarity.baseCoins * PetTier.fromName(tier).coinMultiplier).toLong()
+    }
     val multiplier = PetTier.fromName(tier).coinMultiplier
-    return base * multiplier * stars
+    return rarity.baseCoins * multiplier * stars
 }
 
-fun Pet.xpMultiplier(): Float {
-    val rarityMult = PetRarity.fromName(rarity).baseXpMult
+fun Pet.xpMultiplier(inventory: List<Pet>? = null): Float {
+    val rarity = PetRarity.fromName(rarity)
+    if (rarity == PetRarity.SUPER) {
+        val list = inventory ?: return 1.0f
+        val bestNonSuper = list
+            .filter { PetRarity.fromName(it.rarity) != PetRarity.SUPER }
+            .maxOfOrNull { it.xpMultiplier(list) }
+            ?: 1.0f
+        val tierMult = PetTier.fromName(tier).xpMult
+        return 1.5f * tierMult * bestNonSuper
+    }
+    val rarityMult = rarity.baseXpMult
     val tierMult = PetTier.fromName(tier).xpMult
     val starMult = 1.0f + (stars - 1) * 0.01f
     return rarityMult * tierMult * starMult
@@ -49,13 +62,14 @@ enum class PetTier(val label: String, val colorHex: Long, val order: Int, val co
     }
 }
 
-enum class PetRarity(val label: String, val dropChance: Double, val colorHex: Long, val baseCoins: Int, val baseXpMult: Float) {
-    COMMON("COMMON", 0.544, 0xFFAAAAAA, 100, 1.00f),
-    UNCOMMON("UNCOMMON", 0.280, 0xFF44FF44, 250, 1.05f),
-    RARE("RARE", 0.130, 0xFF4488FF, 600, 1.10f),
-    EPIC("EPIC", 0.040, 0xFFAA44FF, 1500, 1.20f),
-    LEGENDARY("LEGENDARY", 0.005, 0xFFFFD700, 5000, 1.35f),
-    MYTHICAL("MYTHICAL", 0.001, 0xFFFF4444, 15000, 1.50f);
+enum class PetRarity(val label: String, val dropChance: Double, val colorHex: Long, val baseCoins: Long, val baseXpMult: Float) {
+    COMMON("COMMON", 0.544, 0xFFAAAAAA, 100L, 1.00f),
+    UNCOMMON("UNCOMMON", 0.280, 0xFF44FF44, 250L, 1.05f),
+    RARE("RARE", 0.130, 0xFF4488FF, 600L, 1.10f),
+    EPIC("EPIC", 0.040, 0xFFAA44FF, 1500L, 1.20f),
+    LEGENDARY("LEGENDARY", 0.005, 0xFFFFD700, 5000L, 1.35f),
+    MYTHICAL("MYTHICAL", 0.001, 0xFFFF4444, 15000L, 1.50f),
+    SUPER("SUPER", 0.0, 0xFF001B3D, 1_000_000_000_000L, 1.0f);
 
     companion object {
         fun fromName(name: String): PetRarity =
@@ -101,7 +115,11 @@ object PetCatalog {
 
         // MYTHICAL (0.1%)
         PetSpecies("void_01", "Void Walker", PetRarity.MYTHICAL, "\u2B50"),
-        PetSpecies("cosmos_01", "Cosmos Drake", PetRarity.MYTHICAL, "\uD83C\uDF0C")
+        PetSpecies("cosmos_01", "Cosmos Drake", PetRarity.MYTHICAL, "\uD83C\uDF0C"),
+
+        // SUPER (1 in 10,000 — handled specially)
+        PetSpecies("super_dog_01", "Rex", PetRarity.SUPER, "\uD83D\uDC15"),
+        PetSpecies("super_dog_02", "Buddy", PetRarity.SUPER, "\uD83D\uDC36")
     )
 
     fun speciesForRarity(rarity: PetRarity): List<PetSpecies> =
