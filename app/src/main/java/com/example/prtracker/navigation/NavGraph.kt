@@ -35,6 +35,8 @@ import com.example.prtracker.ui.screens.WorkoutSessionScreen
 import com.example.prtracker.ui.screens.PresetAnalysisScreen
 import com.example.prtracker.ui.screens.RestGameScreen
 import com.example.prtracker.ui.screens.DiceRollScreen
+import com.example.prtracker.ui.screens.DiceShopScreen
+import com.example.prtracker.ui.screens.DiceInventoryScreen
 import com.example.prtracker.ui.screens.PetUpgradesScreen
 import com.example.prtracker.ui.screens.PetInventoryScreen
 import com.example.prtracker.viewmodel.PRViewModel
@@ -70,6 +72,8 @@ object Routes {
     const val DICE_ROLL = "dice_roll"
     const val PET_UPGRADES = "pet_upgrades"
     const val PET_INVENTORY = "pet_inventory"
+    const val DICE_SHOP = "dice_shop"
+    const val DICE_INVENTORY = "dice_inventory"
 
     fun logEntry(exerciseId: String) = "log_entry/$exerciseId"
     fun detail(exerciseId: String) = "detail/$exerciseId"
@@ -308,6 +312,18 @@ fun PrTrackerNavGraph(
         }
         composable(Routes.PET_INVENTORY) {
             PetInventoryScreen(
+                navController = navController,
+                viewModel = viewModel
+            )
+        }
+        composable(Routes.DICE_SHOP) {
+            DiceShopScreen(
+                navController = navController,
+                viewModel = viewModel
+            )
+        }
+        composable(Routes.DICE_INVENTORY) {
+            DiceInventoryScreen(
                 navController = navController,
                 viewModel = viewModel
             )

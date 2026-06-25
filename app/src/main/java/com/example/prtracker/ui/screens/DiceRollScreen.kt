@@ -81,8 +81,11 @@ import com.example.prtracker.data.Pet
 import com.example.prtracker.data.PetCatalog
 import com.example.prtracker.data.PetRarity
 import com.example.prtracker.data.PetTier
+import com.example.prtracker.data.SpecialDiceType
 import com.example.prtracker.data.coinValue
 import com.example.prtracker.data.xpMultiplier
+import com.example.prtracker.data.ActiveDiceEffect
+import com.example.prtracker.navigation.Routes
 import com.example.prtracker.ui.components.GridBackground
 import com.example.prtracker.ui.theme.CardBackground
 import com.example.prtracker.ui.theme.LocalAppearance
@@ -111,6 +114,8 @@ fun DiceRollScreen(
     val autoRoll by viewModel.autoRoll.collectAsState()
     val petUpgrades by viewModel.petUpgrades.collectAsState()
     val equippedPetIds by viewModel.equippedPetIds.collectAsState()
+    val activeDiceEffects by viewModel.activeDiceEffects.collectAsState()
+    val diceInventory by viewModel.diceInventory.collectAsState()
     val petMult = viewModel.petXpMultiplier()
     val maxSlots = viewModel.maxEquipSlots()
 
@@ -122,6 +127,11 @@ fun DiceRollScreen(
         val remainder = totalRolls.toInt() % 5
         if (remainder == 0) 5 else 5 - remainder
     } else 0
+
+    val activeEffect = activeDiceEffects.firstOrNull()
+    val activeEffectDiceType = activeEffect?.let { SpecialDiceType.fromId(it.diceTypeId) }
+    val activeDiceColor = activeEffectDiceType?.toColor()
+    val rollsLeft = activeEffect?.rollsRemaining ?: 0
 
     var rollState by remember { mutableStateOf(DiceRollState.IDLE) }
     var lastRolledPet by remember { mutableStateOf<Pet?>(null) }
@@ -274,19 +284,44 @@ fun DiceRollScreen(
                 )
             }
 
-            // ── Inventory button ─────────────────────────────────────────────
+            // ── Dice + Inventory + Shop buttons ──────────────────────────────
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp, vertical = 2.dp),
-                horizontalArrangement = Arrangement.Center
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                // Dice inventory button
+                val diceInvCount = diceInventory.size
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier
                         .clip(RoundedCornerShape(12.dp))
-                        .clickable { navController.navigate(com.example.prtracker.navigation.Routes.PET_INVENTORY) }
+                        .clickable { navController.navigate(Routes.DICE_INVENTORY) }
+                        .background(accent.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
+                        .border(1.dp, accent.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(text = "\uD83C\uDFB2", fontSize = 14.sp)
+                    Text(
+                        text = "DICE ($diceInvCount)",
+                        color = accent,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // Pet inventory button
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { navController.navigate(Routes.PET_INVENTORY) }
                         .background(accent.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
                         .border(1.dp, accent.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
                         .padding(horizontal = 8.dp, vertical = 4.dp)
@@ -299,6 +334,28 @@ fun DiceRollScreen(
                     )
                     Text(
                         text = "INVENTORY (${petInventory.size})",
+                        color = accent,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // Dice shop button
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { navController.navigate(Routes.DICE_SHOP) }
+                        .background(accent.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
+                        .border(1.dp, accent.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(text = "\uD83D\uDED2", fontSize = 14.sp)
+                    Text(
+                        text = "SHOP",
                         color = accent,
                         style = MaterialTheme.typography.labelMedium,
                         fontFamily = FontFamily.Monospace
@@ -332,6 +389,45 @@ fun DiceRollScreen(
                                     .padding(horizontal = 2.dp)
                                     .clickable { viewModel.unequipPet(petId) }
                             )
+                        }
+                    }
+                }
+            }
+
+            // ── Active dice effects display ───────────────────────────────────
+            if (activeDiceEffects.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "ACTIVE: ",
+                        color = Color(0xFF6B8CAE),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    activeDiceEffects.forEach { effect ->
+                        val dtype = SpecialDiceType.fromId(effect.diceTypeId)
+                        if (dtype != null) {
+                            val dc = dtype.toColor()
+                            Box(
+                                modifier = Modifier
+                                    .padding(horizontal = 2.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(dc.copy(alpha = 0.2f))
+                                    .border(1.dp, dc.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "${dtype.emoji} ${effect.rollsRemaining}",
+                                    color = dc,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
                         }
                     }
                 }
@@ -404,6 +500,8 @@ fun DiceRollScreen(
                                 IdleDiceView(
                                     accent = accent,
                                     isLuckyReady = rollsUntilLucky == 1 && luckyRollLevel > 0,
+                                    activeDiceColor = activeDiceColor,
+                                    rollsLeft = if (activeEffect != null) rollsLeft else 0,
                                     onRoll = {
                                         rollState = DiceRollState.ROLLING
                                         rotationX += 720f
@@ -416,7 +514,8 @@ fun DiceRollScreen(
                                     rotationX = animatedRotationX,
                                     rotationY = animatedRotationY,
                                     accent = accent,
-                                    isLuckyReady = rollsUntilLucky == 1 && luckyRollLevel > 0
+                                    isLuckyReady = rollsUntilLucky == 1 && luckyRollLevel > 0,
+                                    activeDiceColor = activeDiceColor
                                 )
                             }
                             else -> {}
@@ -471,9 +570,12 @@ fun DiceRollScreen(
 private fun IdleDiceView(
     accent: Color,
     isLuckyReady: Boolean,
+    activeDiceColor: Color? = null,
+    rollsLeft: Int = 0,
     onRoll: (() -> Unit)? = null
 ) {
-    val diceColor = if (isLuckyReady) Color(0xFFC0C0C0) else accent
+    val diceColor = activeDiceColor ?: if (isLuckyReady) Color(0xFFC0C0C0) else accent
+    val borderColor = activeDiceColor ?: diceColor
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             modifier = Modifier
@@ -481,9 +583,17 @@ private fun IdleDiceView(
                 .then(if (onRoll != null) Modifier.clickable { onRoll() } else Modifier)
                 .shadow(16.dp, RoundedCornerShape(24.dp))
                 .background(diceColor.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
-                .border(2.dp, diceColor, RoundedCornerShape(24.dp))
+                .border(2.dp, borderColor, RoundedCornerShape(24.dp))
                 .then(
-                    if (isLuckyReady) Modifier.drawBehind {
+                    if (activeDiceColor != null) Modifier.drawBehind {
+                        val pulseAlpha = 0.15f + 0.1f * kotlin.math.sin(
+                            System.currentTimeMillis() / 300.0
+                        ).toFloat()
+                        drawCircle(
+                            color = activeDiceColor.copy(alpha = pulseAlpha),
+                            radius = size.width * 0.55f
+                        )
+                    } else if (isLuckyReady) Modifier.drawBehind {
                         val shimmerX = (size.width * 0.3f) + (size.width * 0.4f *
                                 ((System.currentTimeMillis() % 3000L) / 3000f))
                         drawLine(
@@ -506,7 +616,7 @@ private fun IdleDiceView(
         Spacer(modifier = Modifier.height(16.dp))
         if (onRoll != null) {
             Text(
-                text = "TAP TO ROLL",
+                text = if (rollsLeft > 0) "ROLL ($rollsLeft LEFT)" else "TAP TO ROLL",
                 color = diceColor,
                 style = MaterialTheme.typography.titleLarge,
                 fontFamily = FontFamily.Monospace
@@ -520,17 +630,27 @@ private fun RollingDiceView(
     rotationX: Float,
     rotationY: Float,
     accent: Color,
-    isLuckyReady: Boolean
+    isLuckyReady: Boolean,
+    activeDiceColor: Color? = null
 ) {
-    val diceColor = if (isLuckyReady) Color(0xFFC0C0C0) else accent
+    val diceColor = activeDiceColor ?: if (isLuckyReady) Color(0xFFC0C0C0) else accent
+    val borderColor = activeDiceColor ?: diceColor
     Box(
         modifier = Modifier
             .size(160.dp)
             .shadow(16.dp, RoundedCornerShape(24.dp))
             .background(diceColor.copy(alpha = 0.2f), RoundedCornerShape(24.dp))
-            .border(2.dp, diceColor, RoundedCornerShape(24.dp))
+            .border(2.dp, borderColor, RoundedCornerShape(24.dp))
             .then(
-                if (isLuckyReady) Modifier.drawBehind {
+                if (activeDiceColor != null) Modifier.drawBehind {
+                    val pulseAlpha = 0.15f + 0.1f * kotlin.math.sin(
+                        System.currentTimeMillis() / 300.0
+                    ).toFloat()
+                    drawCircle(
+                        color = activeDiceColor.copy(alpha = pulseAlpha),
+                        radius = size.width * 0.55f
+                    )
+                } else if (isLuckyReady) Modifier.drawBehind {
                     val shimmerX = (size.width * 0.3f) + (size.width * 0.4f *
                             ((System.currentTimeMillis() % 3000L) / 3000f))
                     drawLine(
@@ -597,19 +717,37 @@ private fun RevealView(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .background(rarityColor.copy(alpha = 0.2f))
-                .border(1.dp, rarityColor, RoundedCornerShape(8.dp))
-                .padding(horizontal = 16.dp, vertical = 4.dp)
-        ) {
-            Text(
-                text = pet.rarity,
-                color = rarityColor,
-                style = MaterialTheme.typography.titleMedium,
-                fontFamily = FontFamily.Monospace
-            )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(rarityColor.copy(alpha = 0.2f))
+                    .border(1.dp, rarityColor, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = pet.rarity,
+                    color = rarityColor,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+            val tier = PetTier.fromName(pet.tier)
+            val tierColor = Color(tier.colorHex)
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(tierColor.copy(alpha = 0.2f))
+                    .border(1.dp, tierColor, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = tier.label,
+                    color = tierColor,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(12.dp))

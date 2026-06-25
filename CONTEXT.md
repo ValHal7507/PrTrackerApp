@@ -208,6 +208,8 @@ Prtracker/
                     ├── PresetAnalysisScreen.kt # Movement pattern analysis with pentagonal radar chart and exercise classification (VP/HP/CL/VPush/HPush)
                     ├── RestGameScreen.kt        # Protein Catch mini-game: catch falling scoops to fill cup, servings score, chaos bursts
                     ├── DiceRollScreen.kt        # Pet dice roll mini-game: rarity/pity system, fusion, selling, tap-dice-to-roll
+                    ├── DiceShopScreen.kt         # Special dice shop: buy consumable dice that filter rarity chances
+                    ├── DiceInventoryScreen.kt    # Owned special dice: activate consumable dice for filtered rolls
                     ├── PetInventoryScreen.kt     # Pet inventory full-screen: search, sort, grid, inline pet detail, bulk actions
                     └── PetUpgradesScreen.kt     # Pet upgrade shop: LUCK, ROLL_SPEED, LUCKY_ROLL, COIN_MULTIPLIER, EQUIP_SLOTS upgrades
 ```
@@ -597,7 +599,9 @@ data class PetStorageData(
     val lastDiceRollTimestamp: Long = 0L,
     val coins: Long = 0L,
     val petUpgrades: Map<String, Int> = emptyMap(),
-    val equippedPetIds: List<String> = emptyList()  // IDs of equipped pets (max 2-5 slots)
+    val equippedPetIds: List<String> = emptyList(),  // IDs of equipped pets (max 2-5 slots)
+    val diceInventory: List<SpecialDice> = emptyList(),     // Owned special dice (consumable)
+    val activeDiceEffects: List<ActiveDiceEffect> = emptyList()  // Active dice queue (strongest first)
 )
 ```
 
@@ -654,6 +658,8 @@ Separate from `StorageData` to avoid rewriting the full app JSON on every pet ac
 | `"workout_history"`            | `WorkoutHistoryScreen`       | None                 |
 | `"rest_game"`                  | `RestGameScreen`             | None                 |
 | `"dice_roll"`                  | `DiceRollScreen`             | None                 |
+| `"dice_shop"`                  | `DiceShopScreen`             | None                 |
+| `"dice_inventory"`             | `DiceInventoryScreen`        | None                 |
 | `"pet_inventory"`              | `PetInventoryScreen`         | None                 |
 | `"pet_upgrades"`               | `PetUpgradesScreen`          | None                 |
 
@@ -675,6 +681,8 @@ Routes without helper functions (accessed via const vals directly):
 ```kotlin
 Routes.LIVE_RUN         // = "live_run"
 Routes.APPEARANCE       // = "appearance"
+Routes.DICE_SHOP        // = "dice_shop"
+Routes.DICE_INVENTORY   // = "dice_inventory"
 ```
 
 ### Navigation Flow
@@ -736,6 +744,14 @@ DiceRollScreen ──back──→ pops back to GoalsScreen
 
 DiceRollScreen ──"INVENTORY" button──→ PetInventoryScreen
 PetInventoryScreen ──back──→ pops back to DiceRollScreen
+
+DiceRollScreen ──"DICE" button──→ DiceInventoryScreen
+DiceInventoryScreen ──back──→ pops back to DiceRollScreen
+DiceInventoryScreen ──"USE" dialog──→ activates dice, pops back to DiceRollScreen
+
+DiceRollScreen ──"SHOP" button──→ DiceShopScreen
+DiceShopScreen ──back──→ pops back to DiceRollScreen
+DiceShopScreen ──"BUY" button──→ coins deducted, dice added to inventory
 
 CalendarScreen ──bottom nav──→ any other bottom nav route
 CalendarScreen ──tap WORKOUT day──→ shows popup with exercises logged that day

@@ -34,7 +34,7 @@ enum class PetUpgrade(
     LUCKY_ROLL(
         id = "lucky_roll",
         displayName = "LUCKY ROLL",
-        description = "Every 5th roll is lucky — boosted rarity chances",
+        description = "Every 5th roll is lucky — boosted rarity chances. Higher levels upgrade pet tier.",
         baseCost = 1000L,
         costMultiplier = 1.15f
     ),

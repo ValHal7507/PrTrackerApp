@@ -31,7 +31,9 @@ data class StorageData(
     val lastDiceRollTimestamp: Long = 0L,
     val coins: Long = 0L,
     val petUpgrades: Map<String, Int> = emptyMap(),
-    val equippedPetIds: List<String> = emptyList()
+    val equippedPetIds: List<String> = emptyList(),
+    val diceInventory: List<SpecialDice> = emptyList(),
+    val activeDiceEffects: List<ActiveDiceEffect> = emptyList()
 )
 
 @Immutable
@@ -44,7 +46,9 @@ data class PetStorageData(
     val lastDiceRollTimestamp: Long = 0L,
     val coins: Long = 0L,
     val petUpgrades: Map<String, Int> = emptyMap(),
-    val equippedPetIds: List<String> = emptyList()
+    val equippedPetIds: List<String> = emptyList(),
+    val diceInventory: List<SpecialDice> = emptyList(),
+    val activeDiceEffects: List<ActiveDiceEffect> = emptyList()
 )
 
 class StorageManager(private val context: Context) {
@@ -145,7 +149,9 @@ class StorageManager(private val context: Context) {
                         lastDiceRollTimestamp = petData.lastDiceRollTimestamp,
                         coins = petData.coins,
                         petUpgrades = petData.petUpgrades,
-                        equippedPetIds = petData.equippedPetIds
+                        equippedPetIds = petData.equippedPetIds,
+                        diceInventory = petData.diceInventory,
+                        activeDiceEffects = petData.activeDiceEffects
                     )
                 } catch (_: Exception) {
                     val type = object : TypeToken<List<Exercise>>() {}.type
@@ -163,7 +169,9 @@ class StorageManager(private val context: Context) {
                         lastDiceRollTimestamp = petData.lastDiceRollTimestamp,
                         coins = petData.coins,
                         petUpgrades = petData.petUpgrades,
-                        equippedPetIds = petData.equippedPetIds
+                        equippedPetIds = petData.equippedPetIds,
+                        diceInventory = petData.diceInventory,
+                        activeDiceEffects = petData.activeDiceEffects
                     )
                 }
             } else {
@@ -176,7 +184,9 @@ class StorageManager(private val context: Context) {
                     lastDiceRollTimestamp = petData.lastDiceRollTimestamp,
                     coins = petData.coins,
                     petUpgrades = petData.petUpgrades,
-                    equippedPetIds = petData.equippedPetIds
+                    equippedPetIds = petData.equippedPetIds,
+                    diceInventory = petData.diceInventory,
+                    activeDiceEffects = petData.activeDiceEffects
                 )
             }
         } catch (e: Exception) {
@@ -187,7 +197,8 @@ class StorageManager(private val context: Context) {
 
     fun saveData(exercises: List<Exercise>, goals: List<Goal>) {
         val existing = loadFullData()
-        saveFullData(exercises, goals, existing.weightEntries, existing.settings, existing.restDays, existing.runEntries, existing.runningPRs, existing.workoutPresets, existing.workoutSession, existing.workoutHistory, existing.totalXp, existing.xpBootstrapped, existing.potionInventory, existing.lastPotionEarnedTimestamp, existing.miniGameHighScore, existing.petInventory, existing.totalRolls, existing.rollsSinceEpicOrAbove, existing.rollsSinceLegendary, existing.rollsSinceMythical, existing.lastDiceRollTimestamp, existing.coins, existing.petUpgrades, existing.equippedPetIds)
+        val petData = loadPetData()
+        saveFullData(exercises, goals, existing.weightEntries, existing.settings, existing.restDays, existing.runEntries, existing.runningPRs, existing.workoutPresets, existing.workoutSession, existing.workoutHistory, existing.totalXp, existing.xpBootstrapped, existing.potionInventory, existing.lastPotionEarnedTimestamp, existing.miniGameHighScore, existing.petInventory, existing.totalRolls, existing.rollsSinceEpicOrAbove, existing.rollsSinceLegendary, existing.rollsSinceMythical, existing.lastDiceRollTimestamp, existing.coins, existing.petUpgrades, existing.equippedPetIds, petData.diceInventory, petData.activeDiceEffects)
     }
 
     fun saveFullData(
@@ -214,12 +225,14 @@ class StorageManager(private val context: Context) {
         lastDiceRollTimestamp: Long = 0L,
         coins: Long = 0L,
         petUpgrades: Map<String, Int> = emptyMap(),
-        equippedPetIds: List<String> = emptyList()
+        equippedPetIds: List<String> = emptyList(),
+        diceInventory: List<SpecialDice> = emptyList(),
+        activeDiceEffects: List<ActiveDiceEffect> = emptyList()
     ) {
         try {
             val appData = StorageData(exercises, goals, weightEntries, settings, restDays, runEntries, runningPRs, workoutPresets, workoutSession, workoutHistory, totalXp, xpBootstrapped, potionInventory, lastPotionEarnedTimestamp, miniGameHighScore)
             file.writeText(gson.toJson(appData))
-            val petData = PetStorageData(petInventory, totalRolls, rollsSinceEpicOrAbove, rollsSinceLegendary, rollsSinceMythical, lastDiceRollTimestamp, coins, petUpgrades, equippedPetIds)
+            val petData = PetStorageData(petInventory, totalRolls, rollsSinceEpicOrAbove, rollsSinceLegendary, rollsSinceMythical, lastDiceRollTimestamp, coins, petUpgrades, equippedPetIds, diceInventory, activeDiceEffects)
             petFile.writeText(gson.toJson(petData))
         } catch (e: Exception) {
             e.printStackTrace()
@@ -232,6 +245,7 @@ class StorageManager(private val context: Context) {
 
     fun saveExercises(exercises: List<Exercise>) {
         val full = loadFullData()
-        saveFullData(exercises, full.goals, full.weightEntries, full.settings, full.restDays, full.runEntries, full.runningPRs, full.workoutPresets, full.workoutSession, full.workoutHistory, full.totalXp, full.xpBootstrapped, full.potionInventory, full.lastPotionEarnedTimestamp, full.miniGameHighScore, full.petInventory, full.totalRolls, full.rollsSinceEpicOrAbove, full.rollsSinceLegendary, full.rollsSinceMythical, full.lastDiceRollTimestamp, full.coins, full.petUpgrades, full.equippedPetIds)
+        val petData = loadPetData()
+        saveFullData(exercises, full.goals, full.weightEntries, full.settings, full.restDays, full.runEntries, full.runningPRs, full.workoutPresets, full.workoutSession, full.workoutHistory, full.totalXp, full.xpBootstrapped, full.potionInventory, full.lastPotionEarnedTimestamp, full.miniGameHighScore, full.petInventory, full.totalRolls, full.rollsSinceEpicOrAbove, full.rollsSinceLegendary, full.rollsSinceMythical, full.lastDiceRollTimestamp, full.coins, full.petUpgrades, full.equippedPetIds, petData.diceInventory, petData.activeDiceEffects)
     }
 }
