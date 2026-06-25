@@ -12,5 +12,6 @@ data class AppSettings(
     val soundVolume: Float = 0.5f,
     val hapticEnabled: Boolean = true,
     val speechesEnabled: Boolean = true,
+    val bestRestGameServings: Int = 0,
     val appearance: AppearanceSettings = AppearanceSettings()
 )

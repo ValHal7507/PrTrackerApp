@@ -61,6 +61,7 @@ import com.example.prtracker.ui.components.GlowingCard
 import com.example.prtracker.ui.components.GridBackground
 import com.example.prtracker.ui.components.NeonButton
 import com.example.prtracker.ui.theme.Background
+import com.example.prtracker.ui.theme.GoalComplete
 import com.example.prtracker.ui.theme.LocalAppearance
 import com.example.prtracker.ui.theme.TextPrimary
 import com.example.prtracker.ui.theme.TextSecondary
@@ -428,6 +429,14 @@ private fun EntryRow(entry: PREntry, isPR: Boolean, type: String, onDelete: () -
                         text = entry.note,
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextPrimary
+                    )
+                }
+                if (entry.xpEarned > 0L) {
+                    Text(
+                        text = "+${entry.xpEarned} XP",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = GoalComplete,
+                        fontFamily = FontFamily.Monospace
                     )
                 }
             }

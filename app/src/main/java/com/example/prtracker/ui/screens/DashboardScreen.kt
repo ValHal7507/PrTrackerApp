@@ -77,6 +77,7 @@ import androidx.compose.ui.zIndex
 import androidx.navigation.NavHostController
 import com.example.prtracker.data.Exercise
 import com.example.prtracker.data.ExerciseDifficulty
+import com.example.prtracker.data.PetCatalog
 import com.example.prtracker.data.RunningPREngine
 import com.example.prtracker.data.SoundEngine
 import com.example.prtracker.data.parsedDifficulty
@@ -144,6 +145,9 @@ fun DashboardScreen(
     val exercises by viewModel.exercises.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
     val appearance = LocalAppearance.current
+    val equippedPetIds by viewModel.equippedPetIds.collectAsState()
+    val petInventory by viewModel.petInventory.collectAsState()
+    val petMult = viewModel.petXpMultiplier()
 
     val gridItems = remember(exercises, searchQuery) {
         buildGridItems(exercises, searchQuery, appearance.pinnedAccentColor)
@@ -205,6 +209,37 @@ fun DashboardScreen(
                     textAlign = TextAlign.Center,
                     fontFamily = FontFamily.Monospace
                 )
+
+                if (equippedPetIds.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        equippedPetIds.forEach { petId ->
+                            val pet = petInventory.find { it.id == petId }
+                            if (pet != null) {
+                                val species = PetCatalog.allSpecies.find { it.id == pet.speciesId }
+                                Text(
+                                    text = species?.emoji ?: "?",
+                                    fontSize = 16.sp,
+                                    modifier = Modifier.padding(horizontal = 2.dp)
+                                )
+                            }
+                        }
+                        if (petMult > 1.0f) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "+${((petMult - 1.0f) * 100).toInt()}% XP",
+                                color = Color(0xFF00FF85),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                }
 
                 OutlinedTextField(
                     value = searchQuery,

@@ -3,6 +3,8 @@ package com.example.prtracker.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import com.example.prtracker.data.AppSettings
 import com.example.prtracker.data.AppearanceSettings
 import com.example.prtracker.data.AppTheme
@@ -23,11 +25,15 @@ import com.example.prtracker.data.StorageManager
 import com.example.prtracker.data.TierEvaluator
 import com.example.prtracker.data.TierResult
 import com.example.prtracker.data.WeightEntry
+import com.example.prtracker.data.coinValue
+import com.example.prtracker.data.xpMultiplier
+import com.example.prtracker.data.PotionType
 import com.example.prtracker.data.XpEngine
 import com.example.prtracker.data.SessionExerciseProgress
 import com.example.prtracker.data.SessionSetEntry
 import com.example.prtracker.data.WorkoutPreset
 import com.example.prtracker.data.WorkoutSession
+import com.example.prtracker.work.PotionCooldownWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,6 +46,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Calendar
+import java.util.concurrent.TimeUnit
 
 class PRViewModel(application: Application) : AndroidViewModel(application) {
     private val storageManager = StorageManager(application)
@@ -88,7 +95,133 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
     private val _totalXp = MutableStateFlow(0L)
     val totalXp: StateFlow<Long> = _totalXp
 
+    private val _potionInventory = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val potionInventory: StateFlow<Map<String, Int>> = _potionInventory
+
+    private val _lastPotionEarnedTimestamp = MutableStateFlow(0L)
+    val lastPotionEarnedTimestamp: StateFlow<Long> = _lastPotionEarnedTimestamp
+
+    private val _miniGameHighScore = MutableStateFlow(0)
+    val miniGameHighScore: StateFlow<Int> = _miniGameHighScore
+
+    private val _petInventory = MutableStateFlow<List<com.example.prtracker.data.Pet>>(emptyList())
+    val petInventory: StateFlow<List<com.example.prtracker.data.Pet>> = _petInventory
+
+    private val _totalRolls = MutableStateFlow(0)
+    val totalRolls: StateFlow<Int> = _totalRolls
+
+    private val _rollsSinceEpicOrAbove = MutableStateFlow(0)
+    private val _rollsSinceLegendary = MutableStateFlow(0)
+    private val _rollsSinceMythical = MutableStateFlow(0)
+    private val _lastDiceRollTimestamp = MutableStateFlow(0L)
+
+    private val _coins = MutableStateFlow(0L)
+    val coins: StateFlow<Long> = _coins
+
+    private val _petUpgrades = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val petUpgrades: StateFlow<Map<String, Int>> = _petUpgrades
+
+    private val _autoRoll = MutableStateFlow(false)
+    val autoRoll: StateFlow<Boolean> = _autoRoll
+
+    private val _equippedPetIds = MutableStateFlow<List<String>>(emptyList())
+    val equippedPetIds: StateFlow<List<String>> = _equippedPetIds
+
+    fun toggleAutoRoll() {
+        _autoRoll.value = !_autoRoll.value
+    }
+
+    fun equipPet(petId: String) {
+        val maxSlots = getUpgradeLevel(com.example.prtracker.data.PetUpgrade.EQUIP_SLOTS) + 2
+        val current = _equippedPetIds.value.toMutableList()
+        if (current.contains(petId) || current.size >= maxSlots) return
+        current.add(petId)
+        _equippedPetIds.value = current
+        savePetData()
+    }
+
+    fun unequipPet(petId: String) {
+        _equippedPetIds.value = _equippedPetIds.value.filter { it != petId }
+        savePetData()
+    }
+
+    fun petXpMultiplier(): Float {
+        val equipped = _equippedPetIds.value
+        if (equipped.isEmpty()) return 1.0f
+        var mult = 1.0f
+        for (id in equipped) {
+            val pet = _petInventory.value.find { it.id == id } ?: continue
+            mult += pet.xpMultiplier() - 1.0f
+        }
+        return mult.coerceAtLeast(1.0f)
+    }
+
+    fun maxEquipSlots(): Int = getUpgradeLevel(com.example.prtracker.data.PetUpgrade.EQUIP_SLOTS) + 2
+
+    fun sellPet(petId: String) {
+        val pet = _petInventory.value.find { it.id == petId } ?: return
+        _coins.value += pet.coinValue()
+        _petInventory.value = _petInventory.value.filter { it.id != petId }
+        _equippedPetIds.value = _equippedPetIds.value.filter { it != petId }
+        savePetData()
+    }
+
+    fun toggleFavorite(petId: String) {
+        _petInventory.value = _petInventory.value.map {
+            if (it.id == petId) it.copy(isFavorited = !it.isFavorited) else it
+        }
+        savePetData()
+    }
+
+    fun sellAllUnfavorited(): Long {
+        val unfavorited = _petInventory.value.filter { !it.isFavorited }
+        val totalCoins = unfavorited.sumOf { it.coinValue().toLong() }
+        if (totalCoins > 0) {
+            val soldIds = unfavorited.map { it.id }.toSet()
+            _coins.value += totalCoins
+            _petInventory.value = _petInventory.value.filter { it.isFavorited }
+            _equippedPetIds.value = _equippedPetIds.value.filter { it !in soldIds }
+            savePetData()
+        }
+        return totalCoins
+    }
+
+    fun getUpgradeLevel(upgrade: com.example.prtracker.data.PetUpgrade): Int {
+        return _petUpgrades.value[upgrade.id] ?: 0
+    }
+
+    fun purchaseUpgrade(upgrade: com.example.prtracker.data.PetUpgrade): Boolean {
+        val currentLevel = getUpgradeLevel(upgrade)
+        val cost = upgrade.nextLevelCost(currentLevel)
+        if (_coins.value < cost) return false
+        _coins.value -= cost
+        _petUpgrades.value = _petUpgrades.value + (upgrade.id to (currentLevel + 1))
+        savePetData()
+        return true
+    }
+
+    private val _lastBonusXpEarned = MutableSharedFlow<Long>(replay = 0)
+    val lastBonusXpEarned: SharedFlow<Long> = _lastBonusXpEarned
+
+    private val _activePotionType = MutableStateFlow<PotionType?>(null)
+    val activePotionType: StateFlow<PotionType?> = _activePotionType
+
     private var _xpBootstrapped = false
+
+    val canPlayMiniGame: StateFlow<Boolean> = _lastPotionEarnedTimestamp
+        .map { ts -> System.currentTimeMillis() - ts >= 12 * 60 * 60 * 1000 }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    val miniGameCooldownRemainingMs: StateFlow<Long> = _lastPotionEarnedTimestamp
+        .map { ts ->
+            val remaining = 12 * 60 * 60 * 1000 - (System.currentTimeMillis() - ts)
+            remaining.coerceAtLeast(0L)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
+    val canRollDice: StateFlow<Boolean> = _lastDiceRollTimestamp
+        .map { ts -> System.currentTimeMillis() - ts >= 1000L }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
     val currentLevel: StateFlow<Int> = _totalXp
         .map { XpEngine.levelFromTotalXp(it) }
@@ -142,6 +275,49 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
         saveData()
     }
 
+    fun potionCount(type: PotionType): Int =
+        _potionInventory.value.getOrDefault(type.id, 0)
+
+    val hasAnyPotion: StateFlow<Boolean> = _potionInventory
+        .map { inventory -> inventory.values.any { it > 0 } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    fun awardPotion(type: PotionType) {
+        val currentCount = potionCount(type)
+        if (currentCount >= type.maxStack) return
+        _potionInventory.value = _potionInventory.value + (type.id to currentCount + 1)
+        _lastPotionEarnedTimestamp.value = System.currentTimeMillis()
+        saveData()
+
+        val workManager = WorkManager.getInstance(getApplication())
+        workManager.cancelAllWorkByTag(PotionCooldownWorker.WORK_TAG)
+        val request = OneTimeWorkRequestBuilder<PotionCooldownWorker>()
+            .setInitialDelay(12, TimeUnit.HOURS)
+            .addTag(PotionCooldownWorker.WORK_TAG)
+            .build()
+        workManager.enqueue(request)
+    }
+
+    private fun consumePotion(type: PotionType) {
+        val newCount = (potionCount(type) - 1).coerceAtLeast(0)
+        _potionInventory.value = if (newCount == 0) {
+            _potionInventory.value - type.id
+        } else {
+            _potionInventory.value + (type.id to newCount)
+        }
+        _activePotionType.value = null
+    }
+
+    fun activatePotion(type: PotionType) {
+        if (potionCount(type) > 0) {
+            _activePotionType.value = type
+        }
+    }
+
+    fun deactivatePotion() {
+        _activePotionType.value = null
+    }
+
     init {
         loadData()
     }
@@ -152,9 +328,18 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
             var loadedXp = full.totalXp
             var bootstrapped = full.xpBootstrapped
 
-            _exercises.value = full.exercises
+            val migratedExercises = full.exercises.map { exercise ->
+                val difficulty = exercise.parsedDifficulty()
+                val updatedEntries = exercise.entries.map { entry ->
+                    if (entry.xpEarned == 0L && entry.value > 0) {
+                        entry.copy(xpEarned = XpEngine.xpForEntry(entry.value, exercise.type, difficulty))
+                    } else entry
+                }
+                exercise.copy(entries = updatedEntries)
+            }
 
-            loadedXp = XpEngine.computeTotalXpFromExercises(full.exercises)
+            _exercises.value = migratedExercises
+
             if (!bootstrapped) {
                 bootstrapped = true
             }
@@ -163,7 +348,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
                 if (session.xpEarned > 0L) return@map session
                 var computed = 0L
                 for (exProgress in session.exercises) {
-                    val match = full.exercises.find { it.name == exProgress.exerciseName } ?: continue
+                    val match = migratedExercises.find { it.name == exProgress.exerciseName } ?: continue
                     val type = if (exProgress.isHold) "hold" else "reps"
                     val difficulty = match.parsedDifficulty()
                     for (setEntry in exProgress.completedSets) {
@@ -174,9 +359,13 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             storageManager.saveFullData(
-                full.exercises, full.goals, full.weightEntries, full.settings,
+                migratedExercises, full.goals, full.weightEntries, full.settings,
                 full.restDays, full.runEntries, full.runningPRs, full.workoutPresets,
-                full.workoutSession, migratedHistory, loadedXp, bootstrapped
+                full.workoutSession, migratedHistory, loadedXp, bootstrapped,
+                full.potionInventory, full.lastPotionEarnedTimestamp, full.miniGameHighScore,
+                full.petInventory, full.totalRolls, full.rollsSinceEpicOrAbove,
+                full.rollsSinceLegendary, full.rollsSinceMythical, full.lastDiceRollTimestamp,
+                full.coins, full.petUpgrades, full.equippedPetIds
             )
 
             _totalXp.value = loadedXp
@@ -191,6 +380,18 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
             _workoutPresets.value = full.workoutPresets
             _activeSession.value = full.workoutSession
             _workoutHistory.value = migratedHistory
+            _potionInventory.value = full.potionInventory
+            _lastPotionEarnedTimestamp.value = full.lastPotionEarnedTimestamp
+            _miniGameHighScore.value = full.miniGameHighScore
+            _petInventory.value = full.petInventory
+            _totalRolls.value = full.totalRolls
+            _rollsSinceEpicOrAbove.value = full.rollsSinceEpicOrAbove
+            _rollsSinceLegendary.value = full.rollsSinceLegendary
+            _rollsSinceMythical.value = full.rollsSinceMythical
+            _lastDiceRollTimestamp.value = full.lastDiceRollTimestamp
+            _coins.value = full.coins
+            _petUpgrades.value = full.petUpgrades
+            _equippedPetIds.value = full.equippedPetIds
             SoundEngine.volume = full.settings.soundVolume
         }
     }
@@ -209,13 +410,27 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
                 _activeSession.value,
                 _workoutHistory.value,
                 _totalXp.value,
-                _xpBootstrapped
+                _xpBootstrapped,
+                _potionInventory.value,
+                _lastPotionEarnedTimestamp.value,
+                _miniGameHighScore.value,
+                _petInventory.value,
+                _totalRolls.value,
+                _rollsSinceEpicOrAbove.value,
+                _rollsSinceLegendary.value,
+                _rollsSinceMythical.value,
+                _lastDiceRollTimestamp.value,
+                _coins.value,
+                _petUpgrades.value,
+                _equippedPetIds.value
             )
         }
     }
 
     private fun recalculateTotalXp() {
-        _totalXp.value = XpEngine.computeTotalXpFromExercises(_exercises.value)
+        _totalXp.value = _exercises.value.sumOf { exercise ->
+            exercise.entries.sumOf { it.xpEarned }
+        }
     }
 
     fun addExercise(exercise: Exercise) {
@@ -264,12 +479,20 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun logEntry(exerciseId: String, entry: PREntry) {
+        val exercise = _exercises.value.find { it.id == exerciseId }
+        val hasXpDouble = _activePotionType.value == PotionType.XP_DOUBLE
+        val baseXp = if (exercise != null && entry.value > 0) XpEngine.xpForEntry(entry.value, exercise.type, exercise.parsedDifficulty()) else 0L
+        val petMult = petXpMultiplier()
+        val potionMult = if (hasXpDouble) 2 else 1
+        val finalXp = (baseXp * petMult * potionMult).toLong()
+        val entryWithXp = entry.copy(xpEarned = finalXp)
+
         val updated = _exercises.value.toMutableList()
         var targetIndex = -1
         for (i in updated.indices) {
             val ex = updated[i]
             if (ex.id == exerciseId) {
-                updated[i] = ex.copy(entries = listOf(entry) + ex.entries)
+                updated[i] = ex.copy(entries = listOf(entryWithXp) + ex.entries)
                 targetIndex = i
                 break
             }
@@ -279,7 +502,16 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
             updated.add(0, moved)
         }
         _exercises.value = updated
-        recalculateTotalXp()
+
+        if (finalXp > 0L) {
+            _totalXp.value += finalXp
+            if (hasXpDouble) {
+                consumePotion(PotionType.XP_DOUBLE)
+                viewModelScope.launch { _lastBonusXpEarned.emit(finalXp) }
+            }
+        } else {
+            recalculateTotalXp()
+        }
         saveData()
     }
 
@@ -315,7 +547,32 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
         _allTelemetry.value = emptyMap()
         _totalXp.value = 0L
         _xpBootstrapped = false
+        _potionInventory.value = emptyMap()
+        _lastPotionEarnedTimestamp.value = 0L
+        _miniGameHighScore.value = 0
+        _activePotionType.value = null
+        _petInventory.value = emptyList()
+        _totalRolls.value = 0
+        _rollsSinceEpicOrAbove.value = 0
+        _rollsSinceLegendary.value = 0
+        _rollsSinceMythical.value = 0
+        _lastDiceRollTimestamp.value = 0L
+        _coins.value = 0L
+        _equippedPetIds.value = emptyList()
         saveData()
+    }
+
+    fun clearPetData() {
+        _petInventory.value = emptyList()
+        _totalRolls.value = 0
+        _rollsSinceEpicOrAbove.value = 0
+        _rollsSinceLegendary.value = 0
+        _rollsSinceMythical.value = 0
+        _lastDiceRollTimestamp.value = 0L
+        _coins.value = 0L
+        _petUpgrades.value = emptyMap()
+        _equippedPetIds.value = emptyList()
+        savePetData()
     }
 
     fun addRunEntry(entry: RunEntry) {
@@ -429,6 +686,9 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
         val now = System.currentTimeMillis()
         val exercises = _exercises.value.toMutableList()
         var totalEarned = 0L
+        val hasXpDouble = _activePotionType.value == PotionType.XP_DOUBLE
+        val petMult = petXpMultiplier()
+        val potionMult = if (hasXpDouble) 2 else 1
 
         for (exProgress in session.exercises) {
             if (exProgress.completedSets.isEmpty()) continue
@@ -439,13 +699,16 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
             val difficulty = target.parsedDifficulty()
             val setEntries = mutableListOf<PREntry>()
             for (setEntry in exProgress.completedSets) {
-                totalEarned += XpEngine.xpForEntry(setEntry.value, exerciseType, difficulty)
+                val baseXp = XpEngine.xpForEntry(setEntry.value, exerciseType, difficulty)
+                val finalXp = (baseXp * petMult * potionMult).toLong()
+                totalEarned += finalXp
                 setEntries.add(
                     PREntry(
                         id = java.util.UUID.randomUUID().toString(),
                         value = setEntry.value,
                         date = now,
-                        note = "From workout: ${session.presetName}"
+                        note = "From workout: ${session.presetName}",
+                        xpEarned = finalXp
                     )
                 )
             }
@@ -456,6 +719,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
 
         _exercises.value = exercises
         recalculateTotalXp()
+        if (hasXpDouble) consumePotion(PotionType.XP_DOUBLE)
         val completedSession = session.copy(isCompleted = true, isPaused = false, xpEarned = totalEarned)
         _activeSession.value = completedSession
         _workoutHistory.value = listOf(completedSession) + _workoutHistory.value
@@ -482,7 +746,6 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun saveSessionData() {
         viewModelScope.launch {
-            val full = storageManager.loadFullData()
             storageManager.saveFullData(
                 exercises = _exercises.value,
                 goals = _goals.value,
@@ -495,7 +758,36 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
                 workoutSession = _activeSession.value,
                 workoutHistory = _workoutHistory.value,
                 totalXp = _totalXp.value,
-                xpBootstrapped = _xpBootstrapped
+                xpBootstrapped = _xpBootstrapped,
+                potionInventory = _potionInventory.value,
+                lastPotionEarnedTimestamp = _lastPotionEarnedTimestamp.value,
+                miniGameHighScore = _miniGameHighScore.value,
+                petInventory = _petInventory.value,
+                totalRolls = _totalRolls.value,
+                rollsSinceEpicOrAbove = _rollsSinceEpicOrAbove.value,
+                rollsSinceLegendary = _rollsSinceLegendary.value,
+                rollsSinceMythical = _rollsSinceMythical.value,
+                lastDiceRollTimestamp = _lastDiceRollTimestamp.value,
+                coins = _coins.value,
+                petUpgrades = _petUpgrades.value
+            )
+        }
+    }
+
+    private fun savePetData() {
+        viewModelScope.launch {
+            storageManager.savePetData(
+                com.example.prtracker.data.PetStorageData(
+                    petInventory = _petInventory.value,
+                    totalRolls = _totalRolls.value,
+                    rollsSinceEpicOrAbove = _rollsSinceEpicOrAbove.value,
+                    rollsSinceLegendary = _rollsSinceLegendary.value,
+                    rollsSinceMythical = _rollsSinceMythical.value,
+                    lastDiceRollTimestamp = _lastDiceRollTimestamp.value,
+                    coins = _coins.value,
+                    petUpgrades = _petUpgrades.value,
+                    equippedPetIds = _equippedPetIds.value
+                )
             )
         }
     }
@@ -769,6 +1061,14 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
         saveData()
     }
 
+    fun updateBestRestGameServings(newBest: Int) {
+        if (newBest > _appSettings.value.bestRestGameServings) {
+            _appSettings.value = _appSettings.value.copy(bestRestGameServings = newBest)
+            _miniGameHighScore.value = newBest
+            saveData()
+        }
+    }
+
     fun getTimeRemaining(goal: Goal): String {
         val now = Calendar.getInstance()
         return when (goal.period) {
@@ -913,9 +1213,47 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
             workoutSession = _activeSession.value,
             workoutHistory = _workoutHistory.value,
             totalXp = _totalXp.value,
-            xpBootstrapped = true
+            xpBootstrapped = true,
+            potionInventory = _potionInventory.value,
+            lastPotionEarnedTimestamp = _lastPotionEarnedTimestamp.value,
+            miniGameHighScore = _miniGameHighScore.value
         )
         return Gson().toJson(fullData)
+    }
+
+    fun generateAppExportJson(): String {
+        val appData = StorageData(
+            exercises = _exercises.value,
+            goals = _goals.value,
+            weightEntries = _weightEntries.value,
+            settings = _appSettings.value,
+            restDays = _restDays.value,
+            runEntries = _runEntries.value,
+            runningPRs = _runningPRs.value,
+            workoutPresets = _workoutPresets.value,
+            workoutSession = _activeSession.value,
+            workoutHistory = _workoutHistory.value,
+            totalXp = _totalXp.value,
+            xpBootstrapped = true,
+            potionInventory = _potionInventory.value,
+            lastPotionEarnedTimestamp = _lastPotionEarnedTimestamp.value,
+            miniGameHighScore = _miniGameHighScore.value
+        )
+        return Gson().toJson(appData)
+    }
+
+    fun generatePetExportJson(): String {
+        val petData = com.example.prtracker.data.PetStorageData(
+            petInventory = _petInventory.value,
+            totalRolls = _totalRolls.value,
+            rollsSinceEpicOrAbove = _rollsSinceEpicOrAbove.value,
+            rollsSinceLegendary = _rollsSinceLegendary.value,
+            rollsSinceMythical = _rollsSinceMythical.value,
+            lastDiceRollTimestamp = _lastDiceRollTimestamp.value,
+            coins = _coins.value,
+            petUpgrades = _petUpgrades.value
+        )
+        return Gson().toJson(petData)
     }
 
     fun importSyncData(data: StorageData, mode: SyncMode) {
@@ -930,6 +1268,18 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
                 _runningPRs.value = data.runningPRs
                 _workoutPresets.value = data.workoutPresets
                 _workoutHistory.value = data.workoutHistory
+                _potionInventory.value = data.potionInventory
+                _lastPotionEarnedTimestamp.value = data.lastPotionEarnedTimestamp
+                _miniGameHighScore.value = data.miniGameHighScore
+                _petInventory.value = data.petInventory
+                _totalRolls.value = data.totalRolls
+                _rollsSinceEpicOrAbove.value = data.rollsSinceEpicOrAbove
+                _rollsSinceLegendary.value = data.rollsSinceLegendary
+                _rollsSinceMythical.value = data.rollsSinceMythical
+                _lastDiceRollTimestamp.value = data.lastDiceRollTimestamp
+                _coins.value = data.coins
+                _petUpgrades.value = data.petUpgrades
+                _equippedPetIds.value = data.equippedPetIds
                 recalculateTotalXp()
                 _xpBootstrapped = true
             }
@@ -960,6 +1310,13 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
                 _runEntries.value = (_runEntries.value + newRuns).sortedByDescending { it.date }
                 _runningPRs.value = RunningPREngine.computePRs(_runEntries.value)
 
+                val mergedInventory = mergePotionInventory(_potionInventory.value, data.potionInventory)
+                _potionInventory.value = mergedInventory
+                _lastPotionEarnedTimestamp.value = maxOf(_lastPotionEarnedTimestamp.value, data.lastPotionEarnedTimestamp)
+                _miniGameHighScore.value = maxOf(_miniGameHighScore.value, data.miniGameHighScore)
+
+                mergePetData(data)
+
                 _exercises.value = mergedExercises
                 _goals.value = mergedGoals
                 _weightEntries.value = mergedWeightEntries
@@ -971,6 +1328,350 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
         }
         _xpBootstrapped = true
         saveData()
+    }
+
+    fun importAppData(json: String, mode: SyncMode) {
+        try {
+            val data = Gson().fromJson(json, StorageData::class.java) ?: return
+            when (mode) {
+                SyncMode.REPLACE -> {
+                    _exercises.value = data.exercises
+                    _goals.value = data.goals
+                    _weightEntries.value = data.weightEntries
+                    _appSettings.value = data.settings
+                    _restDays.value = data.restDays
+                    _runEntries.value = data.runEntries
+                    _runningPRs.value = data.runningPRs
+                    _workoutPresets.value = data.workoutPresets
+                    _workoutHistory.value = data.workoutHistory
+                    _potionInventory.value = data.potionInventory
+                    _lastPotionEarnedTimestamp.value = data.lastPotionEarnedTimestamp
+                    _miniGameHighScore.value = data.miniGameHighScore
+                    recalculateTotalXp()
+                    _xpBootstrapped = true
+                }
+                SyncMode.MERGE -> {
+                    val mergedExercises = mergeExercises(_exercises.value, data.exercises)
+                    val mergedGoals = mergeGoals(_goals.value, data.goals)
+                    val mergedWeightEntries = mergeWeightEntries(_weightEntries.value, data.weightEntries)
+
+                    val localRestDays = _restDays.value.toSet()
+                    val incomingRestDays = data.restDays.toSet()
+                    val mergedRestDays = (localRestDays + incomingRestDays).toList()
+
+                    val localPresetIds = _workoutPresets.value.map { it.id }.toSet()
+                    val newPresets = data.workoutPresets.filter { it.id !in localPresetIds }
+                    _workoutPresets.value = _workoutPresets.value + newPresets
+
+                    val localHistoryIds = _workoutHistory.value.map { it.id }.toSet()
+                    val newHistory = data.workoutHistory.filter { it.id !in localHistoryIds }
+                    _workoutHistory.value = _workoutHistory.value + newHistory
+
+                    val localRunIds = _runEntries.value.map { it.id }.toSet()
+                    val newRuns = data.runEntries.filter { it.id !in localRunIds }
+                    _runEntries.value = (_runEntries.value + newRuns).sortedByDescending { it.date }
+                    _runningPRs.value = RunningPREngine.computePRs(_runEntries.value)
+
+                    val mergedInventory = mergePotionInventory(_potionInventory.value, data.potionInventory)
+                    _potionInventory.value = mergedInventory
+                    _lastPotionEarnedTimestamp.value = maxOf(_lastPotionEarnedTimestamp.value, data.lastPotionEarnedTimestamp)
+                    _miniGameHighScore.value = maxOf(_miniGameHighScore.value, data.miniGameHighScore)
+
+                    _exercises.value = mergedExercises
+                    _goals.value = mergedGoals
+                    _weightEntries.value = mergedWeightEntries
+                    _restDays.value = mergedRestDays
+
+                    recalculateTotalXp()
+                }
+            }
+            _xpBootstrapped = true
+            saveData()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun importPetData(json: String, mode: SyncMode) {
+        try {
+            val data = Gson().fromJson(json, com.example.prtracker.data.PetStorageData::class.java) ?: return
+            when (mode) {
+                SyncMode.REPLACE -> {
+                    _petInventory.value = data.petInventory
+                    _totalRolls.value = data.totalRolls
+                    _rollsSinceEpicOrAbove.value = data.rollsSinceEpicOrAbove
+                    _rollsSinceLegendary.value = data.rollsSinceLegendary
+                    _rollsSinceMythical.value = data.rollsSinceMythical
+                    _lastDiceRollTimestamp.value = data.lastDiceRollTimestamp
+                    _coins.value = data.coins
+                    _petUpgrades.value = data.petUpgrades
+                    _equippedPetIds.value = data.equippedPetIds
+                }
+                SyncMode.MERGE -> {
+                    mergePetDataFromStorage(data)
+                }
+            }
+            savePetData()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun mergePetData(data: StorageData) {
+        val localPetIds = _petInventory.value.map { it.id }.toSet()
+        val newPets = data.petInventory.filter { it.id !in localPetIds }
+        val existingPets = _petInventory.value.map { pet ->
+            val incoming = data.petInventory.find { it.id == pet.id }
+            if (incoming != null) {
+                val incomingTier = com.example.prtracker.data.PetTier.fromName(incoming.tier)
+                val localTier = com.example.prtracker.data.PetTier.fromName(pet.tier)
+                when {
+                    incomingTier.order > localTier.order -> pet.copy(tier = incoming.tier, stars = incoming.stars)
+                    incomingTier.order == localTier.order && incoming.stars > pet.stars -> pet.copy(stars = incoming.stars)
+                    else -> pet
+                }
+            } else pet
+        }
+        _petInventory.value = (existingPets + newPets).distinctBy { it.id }
+        _totalRolls.value = maxOf(_totalRolls.value, data.totalRolls)
+        _rollsSinceEpicOrAbove.value = data.rollsSinceEpicOrAbove
+        _rollsSinceLegendary.value = data.rollsSinceLegendary
+        _rollsSinceMythical.value = data.rollsSinceMythical
+        _lastDiceRollTimestamp.value = maxOf(_lastDiceRollTimestamp.value, data.lastDiceRollTimestamp)
+        _coins.value = maxOf(_coins.value, data.coins)
+        val mergedUpgrades = _petUpgrades.value.toMutableMap()
+        for ((key, value) in data.petUpgrades) {
+            val local = mergedUpgrades[key] ?: 0
+            mergedUpgrades[key] = maxOf(local, value)
+        }
+        _petUpgrades.value = mergedUpgrades
+    }
+
+    private fun mergePetDataFromStorage(data: com.example.prtracker.data.PetStorageData) {
+        val localPetIds = _petInventory.value.map { it.id }.toSet()
+        val newPets = data.petInventory.filter { it.id !in localPetIds }
+        val existingPets = _petInventory.value.map { pet ->
+            val incoming = data.petInventory.find { it.id == pet.id }
+            if (incoming != null) {
+                val incomingTier = com.example.prtracker.data.PetTier.fromName(incoming.tier)
+                val localTier = com.example.prtracker.data.PetTier.fromName(pet.tier)
+                when {
+                    incomingTier.order > localTier.order -> pet.copy(tier = incoming.tier, stars = incoming.stars)
+                    incomingTier.order == localTier.order && incoming.stars > pet.stars -> pet.copy(stars = incoming.stars)
+                    else -> pet
+                }
+            } else pet
+        }
+        _petInventory.value = (existingPets + newPets).distinctBy { it.id }
+        _totalRolls.value = maxOf(_totalRolls.value, data.totalRolls)
+        _rollsSinceEpicOrAbove.value = data.rollsSinceEpicOrAbove
+        _rollsSinceLegendary.value = data.rollsSinceLegendary
+        _rollsSinceMythical.value = data.rollsSinceMythical
+        _lastDiceRollTimestamp.value = maxOf(_lastDiceRollTimestamp.value, data.lastDiceRollTimestamp)
+        _coins.value = maxOf(_coins.value, data.coins)
+        val mergedUpgrades = _petUpgrades.value.toMutableMap()
+        for ((key, value) in data.petUpgrades) {
+            val local = mergedUpgrades[key] ?: 0
+            mergedUpgrades[key] = maxOf(local, value)
+        }
+        _petUpgrades.value = mergedUpgrades
+    }
+
+    fun rollDice(): com.example.prtracker.data.RollResult {
+        _totalRolls.value += 1
+        _rollsSinceEpicOrAbove.value += 1
+        _rollsSinceLegendary.value += 1
+        _rollsSinceMythical.value += 1
+
+        val luckLevel = getUpgradeLevel(com.example.prtracker.data.PetUpgrade.LUCK)
+        val luckMultiplier = 1.0 + luckLevel * 0.20
+
+        val luckyRollLevel = getUpgradeLevel(com.example.prtracker.data.PetUpgrade.LUCKY_ROLL)
+        val isLuckyRoll = luckyRollLevel > 0 &&
+                _totalRolls.value % 5 == 0
+
+        val roll = Math.random()
+
+        val effectiveChances = mutableMapOf<com.example.prtracker.data.PetRarity, Double>()
+        for (rarity in com.example.prtracker.data.PetRarity.entries) {
+            effectiveChances[rarity] = rarity.dropChance
+        }
+
+        if (luckMultiplier > 1.0) {
+            for (rarity in com.example.prtracker.data.PetRarity.entries) {
+                if (rarity != com.example.prtracker.data.PetRarity.COMMON) {
+                    effectiveChances[rarity] = (effectiveChances[rarity] ?: 0.0) * luckMultiplier
+                }
+            }
+        }
+
+        if (_rollsSinceEpicOrAbove.value > 150) {
+            val bonus = (_rollsSinceEpicOrAbove.value - 150) * 0.01 * luckMultiplier
+            effectiveChances[com.example.prtracker.data.PetRarity.EPIC] =
+                (effectiveChances[com.example.prtracker.data.PetRarity.EPIC] ?: 0.0) + bonus
+        }
+
+        if (_rollsSinceLegendary.value >= 401) {
+            effectiveChances[com.example.prtracker.data.PetRarity.LEGENDARY] = 1.0
+        }
+
+        if (_rollsSinceMythical.value >= 2001) {
+            effectiveChances[com.example.prtracker.data.PetRarity.MYTHICAL] = 1.0
+        }
+
+        var selectedRarity: com.example.prtracker.data.PetRarity
+        var chancesUsedForRoll: Map<com.example.prtracker.data.PetRarity, Double> = effectiveChances
+
+        if (isLuckyRoll) {
+            val luckyRollRarityBoost = 1.0 + luckyRollLevel * 0.25
+            val boostedChances = effectiveChances.mapValues { (rarity, chance) ->
+                if (rarity != com.example.prtracker.data.PetRarity.COMMON) chance * luckyRollRarityBoost else chance
+            }
+            chancesUsedForRoll = boostedChances
+            val totalChance = boostedChances.values.sum()
+            var normalizedRoll = roll * totalChance
+            selectedRarity = com.example.prtracker.data.PetRarity.COMMON
+
+            for ((rarity, chance) in boostedChances) {
+                normalizedRoll -= chance
+                if (normalizedRoll <= 0.0) {
+                    selectedRarity = rarity
+                    break
+                }
+            }
+        } else {
+            val totalChance = effectiveChances.values.sum()
+            var normalizedRoll = roll * totalChance
+            selectedRarity = com.example.prtracker.data.PetRarity.COMMON
+
+            for ((rarity, chance) in effectiveChances) {
+                normalizedRoll -= chance
+                if (normalizedRoll <= 0.0) {
+                    selectedRarity = rarity
+                    break
+                }
+            }
+        }
+
+        val speciesList = com.example.prtracker.data.PetCatalog.speciesForRarity(selectedRarity)
+        val species = speciesList.random()
+
+        val targetTier = com.example.prtracker.data.PetTier.NORMAL.name
+
+        val existingPets = _petInventory.value.filter {
+            it.speciesId == species.id && it.tier == targetTier
+        }
+        val pet: com.example.prtracker.data.Pet
+        val upgradeTarget = existingPets.firstOrNull { it.stars < 5 }
+        if (upgradeTarget != null) {
+            val newStars = upgradeTarget.stars + 1
+            pet = upgradeTarget.copy(stars = newStars, rollNumber = _totalRolls.value)
+            _petInventory.value = _petInventory.value.map { if (it.id == upgradeTarget.id) pet else it }
+        } else {
+            pet = com.example.prtracker.data.Pet(
+                speciesId = species.id,
+                name = species.name,
+                rarity = selectedRarity.name,
+                stars = 1,
+                tier = targetTier,
+                rollNumber = _totalRolls.value
+            )
+            _petInventory.value = _petInventory.value + pet
+        }
+
+        val coinMultiplier = 1.0 + getUpgradeLevel(com.example.prtracker.data.PetUpgrade.COIN_MULTIPLIER) * 0.20
+        _coins.value += (pet.coinValue().toLong() * coinMultiplier).toLong()
+
+        if (selectedRarity == com.example.prtracker.data.PetRarity.EPIC ||
+            selectedRarity == com.example.prtracker.data.PetRarity.LEGENDARY ||
+            selectedRarity == com.example.prtracker.data.PetRarity.MYTHICAL) {
+            _rollsSinceEpicOrAbove.value = 0
+        }
+        if (selectedRarity == com.example.prtracker.data.PetRarity.LEGENDARY) {
+            _rollsSinceLegendary.value = 0
+        }
+        if (selectedRarity == com.example.prtracker.data.PetRarity.MYTHICAL) {
+            _rollsSinceMythical.value = 0
+        }
+
+        _lastDiceRollTimestamp.value = System.currentTimeMillis()
+        savePetData()
+        return com.example.prtracker.data.RollResult(pet, chancesUsedForRoll, isLuckyRoll)
+    }
+
+    fun fusePet(petId: String) {
+        val pet = _petInventory.value.find { it.id == petId } ?: return
+        val currentTier = com.example.prtracker.data.PetTier.fromName(pet.tier)
+        val nextTier = com.example.prtracker.data.PetTier.nextTier(currentTier) ?: return
+
+        val existingAtTarget = _petInventory.value.filter {
+            it.speciesId == pet.speciesId && it.tier == nextTier.name
+        }
+        val upgradeTarget = existingAtTarget.firstOrNull { it.stars < 5 }
+
+        if (upgradeTarget != null) {
+            val upgraded = upgradeTarget.copy(stars = upgradeTarget.stars + 1)
+            _petInventory.value = _petInventory.value.map {
+                when (it.id) {
+                    pet.id -> null
+                    upgradeTarget.id -> upgraded
+                    else -> it
+                }
+            }.filterNotNull()
+        } else {
+            val fusedPet = pet.copy(
+                id = java.util.UUID.randomUUID().toString(),
+                stars = 1,
+                tier = nextTier.name
+            )
+            _petInventory.value = _petInventory.value.map {
+                if (it.id == pet.id) fusedPet else it
+            }
+        }
+        _equippedPetIds.value = _equippedPetIds.value.filter { it != petId }
+        savePetData()
+    }
+
+    fun fuseAllPets(): Int {
+        val fusable = _petInventory.value.filter { pet ->
+            pet.stars == 5 && com.example.prtracker.data.PetTier.fromName(pet.tier) != com.example.prtracker.data.PetTier.RED_MATTER
+        }
+        if (fusable.isEmpty()) return 0
+
+        var current = _petInventory.value
+        var fusedCount = 0
+        val consumedIds = mutableSetOf<String>()
+
+        for (pet in fusable) {
+            val currentTier = com.example.prtracker.data.PetTier.fromName(pet.tier)
+            val nextTier = com.example.prtracker.data.PetTier.nextTier(currentTier) ?: continue
+
+            val existingAtTarget = current.filter {
+                it.speciesId == pet.speciesId && it.tier == nextTier.name
+            }
+            val upgradeTarget = existingAtTarget.firstOrNull { it.stars < 5 }
+
+            if (upgradeTarget != null) {
+                val upgraded = upgradeTarget.copy(stars = upgradeTarget.stars + 1)
+                current = current.filter { it.id != pet.id && it.id != upgradeTarget.id } + upgraded
+                consumedIds.add(pet.id)
+                consumedIds.add(upgradeTarget.id)
+            } else {
+                val fusedPet = pet.copy(
+                    id = java.util.UUID.randomUUID().toString(),
+                    stars = 1,
+                    tier = nextTier.name
+                )
+                current = current.map { if (it.id == pet.id) fusedPet else it }
+                consumedIds.add(pet.id)
+            }
+            fusedCount++
+        }
+
+        _petInventory.value = current
+        _equippedPetIds.value = _equippedPetIds.value.filter { it !in consumedIds }
+        savePetData()
+        return fusedCount
     }
 
     private fun mergeExercises(local: List<Exercise>, incoming: List<Exercise>): List<Exercise> {
@@ -1014,5 +1715,17 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
         val localIds = local.map { it.id }.toSet()
         val newEntries = incoming.filter { it.id !in localIds }
         return (local + newEntries).sortedByDescending { it.date }
+    }
+
+    private fun mergePotionInventory(
+        local: Map<String, Int>,
+        incoming: Map<String, Int>
+    ): Map<String, Int> {
+        val merged = local.toMutableMap()
+        for ((key, count) in incoming) {
+            val localCount = merged.getOrDefault(key, 0)
+            merged[key] = maxOf(localCount, count)
+        }
+        return merged
     }
 }

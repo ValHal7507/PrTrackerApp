@@ -7,5 +7,6 @@ data class PREntry(
     val id: String,
     val value: Int,
     val date: Long,
-    val note: String = ""
+    val note: String = "",
+    val xpEarned: Long = 0L
 )

@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Stars
 import androidx.compose.material3.AlertDialog
@@ -178,6 +179,14 @@ fun GoalsScreen(
 
                 item {
                     RankEvaluatorButton(navController = navController)
+                }
+
+                item {
+                    RestGameButton(navController = navController)
+                }
+
+                item {
+                    PetDiceRollButton(navController = navController)
                 }
 
                 item {
@@ -715,6 +724,96 @@ private fun RankEvaluatorButton(navController: NavHostController) {
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = "RANK EVALUATOR",
+                color = accent,
+                style = MaterialTheme.typography.titleLarge,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .border(
+                    BorderStroke(1.dp, borderBrush),
+                    RoundedCornerShape(16.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) { }
+    }
+}
+
+@Composable
+private fun RestGameButton(navController: NavHostController) {
+    val appearance = LocalAppearance.current
+    val accent = appearance.systemAccentColor
+    val borderBrush = remember {
+        Brush.linearGradient(listOf(accent, Color.Transparent))
+    }
+
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Button(
+            onClick = { navController.navigate(Routes.REST_GAME) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = accent.copy(alpha = 0.15f)
+            )
+        ) {
+            Icon(
+                imageVector = Icons.Default.Stars,
+                contentDescription = "Rest Game",
+                tint = accent,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "REST GAME",
+                color = accent,
+                style = MaterialTheme.typography.titleLarge,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .border(
+                    BorderStroke(1.dp, borderBrush),
+                    RoundedCornerShape(16.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) { }
+    }
+}
+
+@Composable
+private fun PetDiceRollButton(navController: NavHostController) {
+    val appearance = LocalAppearance.current
+    val accent = appearance.systemAccentColor
+    val borderBrush = remember {
+        Brush.linearGradient(listOf(accent, Color.Transparent))
+    }
+
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Button(
+            onClick = { navController.navigate(Routes.DICE_ROLL) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = accent.copy(alpha = 0.15f)
+            )
+        ) {
+            Icon(
+                imageVector = Icons.Default.Casino,
+                contentDescription = "Pet Dice Roll",
+                tint = accent,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "PET DICE ROLL",
                 color = accent,
                 style = MaterialTheme.typography.titleLarge,
                 fontFamily = FontFamily.Monospace

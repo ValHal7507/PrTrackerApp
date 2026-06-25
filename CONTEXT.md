@@ -150,6 +150,8 @@ Prtracker/
             │   ├── RunningPREngine.kt       # Running PR computation engine
             │   ├── WorkoutPreset.kt         # PresetExercise and WorkoutPreset data classes (preset templates)
             │   ├── WorkoutSession.kt        # WorkoutSession, SessionExerciseProgress, SessionSetEntry data classes
+            │   ├── Pet.kt                   # Pet data class, PetRarity (6 tiers), PetTier (6 tiers), PetSpecies, PetCatalog
+            │   ├── PetUpgrade.kt            # PetUpgrade enum (LUCK, ROLL_SPEED, LUCKY_ROLL, COIN_MULTIPLIER) with cost formulas
             │   └── StorageManager.kt         # Gson-based JSON file read/write (exercises + goals + weight + settings + presets + sessions + history)
             ├── viewmodel/
             │   └── PRViewModel.kt            # Shared ViewModel (exercises, goals, weight, settings, haptic state, workout history)
@@ -204,6 +206,10 @@ Prtracker/
                     ├── WorkoutPresetDetailScreen.kt # Full-screen preset detail view with exercises, edit/delete actions
                     ├── WorkoutSessionScreen.kt # Live workout execution with timer, per-set input, pause/resume/finish
                     ├── PresetAnalysisScreen.kt # Movement pattern analysis with pentagonal radar chart and exercise classification (VP/HP/CL/VPush/HPush)
+                    ├── RestGameScreen.kt        # Protein Catch mini-game: catch falling scoops to fill cup, servings score, chaos bursts
+                    ├── DiceRollScreen.kt        # Pet dice roll mini-game: rarity/pity system, fusion, selling, tap-dice-to-roll
+                    ├── PetInventoryScreen.kt     # Pet inventory full-screen: search, sort, grid, inline pet detail, bulk actions
+                    └── PetUpgradesScreen.kt     # Pet upgrade shop: LUCK, ROLL_SPEED, LUCKY_ROLL, COIN_MULTIPLIER, EQUIP_SLOTS upgrades
 ```
 
 ---
@@ -262,7 +268,8 @@ data class PREntry(
     val id: String,     // UUID.randomUUID().toString()
     val value: Int,     // Number of reps, or seconds held
     val date: Long,     // System.currentTimeMillis() at time of logging
-    val note: String    // Optional user note, defaults to ""
+    val note: String,   // Optional user note, defaults to ""
+    val xpEarned: Long = 0L  // Multiplied XP at log time (pet + potion), 0L for backward compat
 )
 ```
 
@@ -351,6 +358,61 @@ data class AppSettings(
 ```
 
 Weight is always stored in kilograms internally. Conversion to/from pounds happens only at the UI layer via the `weightUnit` setting.
+
+### `Pet` (`data/Pet.kt`)
+
+```kotlin
+@Immutable
+data class Pet(
+    val id: String = UUID.randomUUID().toString(),
+    val speciesId: String = "",
+    val name: String = "",
+    val rarity: String = "COMMON",    // COMMON, UNCOMMON, RARE, EPIC, LEGENDARY, MYTHICAL
+    val stars: Int = 1,               // 1-5 stars
+    val obtainedAt: Long = System.currentTimeMillis(),
+    val rollNumber: Int = 0,
+    val tier: String = "NORMAL",      // NORMAL, SILVER, GOLDEN, RAINBOW, DARK_MATTER, RED_MATTER
+    val isFavorited: Boolean = false  // FAVORITED pets are protected from Sell All
+)
+```
+
+`PetRarity` enum defines 6 rarity tiers with drop chances, base coin values, and base XP multipliers: COMMON (54.4%, 100 coins, 1.00x), UNCOMMON (28%, 250 coins, 1.05x), RARE (13%, 600 coins, 1.10x), EPIC (4%, 1500 coins, 1.20x), LEGENDARY (0.5%, 5000 coins, 1.35x), MYTHICAL (0.1%, 15000 coins, 1.50x).
+
+`PetTier` enum defines 6 evolution tiers with coin multipliers and XP multipliers: NORMAL (1x, 1.00x), SILVER (2x, 1.10x), GOLDEN (4x, 1.25x), RAINBOW (8x, 1.40x), DARK_MATTER (16x, 1.60x), RED_MATTER (32x, 2.00x). A pet's coin value = `PetRarity.baseCoins × PetTier.coinMultiplier × stars`. A pet's XP multiplier = `PetRarity.baseXpMult × PetTier.xpMult × (1 + (stars-1) × 0.01)`.
+
+`PetSpecies` holds 18 placeholder species (6 per rarity). `PetCatalog.allSpecies` is the registry. Species are code-only — only `Pet` instances are persisted to JSON.
+
+`fun Pet.coinValue()` extension function computes the sell value. Fusion consumes a 5★ pet and creates the next tier with 1★.
+
+`data class RollResult(pet, effectiveChances, isLuckyRoll)` — returned by `rollDice()`. `effectiveChances` contains the actual boosted chances used for the roll (including lucky roll boost), used for the "1 in X CHANCE" display on pet reveal.
+
+### `PetUpgrade` (`data/PetUpgrade.kt`)
+
+```kotlin
+enum class PetUpgrade(
+    val id: String,
+    val displayName: String,
+    val description: String,
+    val baseCost: Long,
+    val costMultiplier: Float,
+    val fixedCosts: List<Long>? = null  // null = exponential scaling, non-null = fixed per-level costs
+) {
+    LUCK(id = "luck", displayName = "LUCK", description = "Improves rare drop chances (+20% per level)", baseCost = 500L, costMultiplier = 1.12f),
+    COIN_MULTIPLIER(id = "coin_multiplier", displayName = "COIN MULTIPLIER", description = "Boosts coins earned per roll (+0.20x per level)", baseCost = 600L, costMultiplier = 1.13f),
+    ROLL_SPEED(id = "roll_speed", displayName = "ROLL SPEED", description = "Faster dice animation (-72ms per level, min 200ms)", baseCost = 300L, costMultiplier = 1.10f),
+    LUCKY_ROLL(id = "lucky_roll", displayName = "LUCKY ROLL", description = "Every 5th roll is lucky — boosted rarity chances", baseCost = 1000L, costMultiplier = 1.15f),
+    EQUIP_SLOTS(id = "equip_slots", displayName = "EQUIP SLOTS", description = "More active pet equip slots", baseCost = 0L, costMultiplier = 1f, fixedCosts = listOf(1_000_000L, 10_000_000L, 100_000_000L));
+
+    fun costForLevel(currentLevel: Int): Long {
+        if (fixedCosts != null) return if (currentLevel < fixedCosts.size) fixedCosts[currentLevel] else Long.MAX_VALUE
+        return (baseCost * costMultiplier.pow(currentLevel * 0.82f)).toLong()
+    }
+    fun nextLevelCost(currentLevel: Int): Long = costForLevel(currentLevel)
+    fun maxLevel(): Int = if (fixedCosts != null) fixedCosts.size else Int.MAX_VALUE
+}
+```
+
+5 upgradeable stats stored as `Map<String, Int>` in `PetStorageData.petUpgrades` (upgrade ID → level). Cost scaling uses a dampened exponential: `costMultiplier^(level × 0.82f)` — COIN_MULTIPLIER at Lv70 costs ~500k (was 3M without dampening). EQUIP_SLOTS uses fixed costs (1M/10M/100M) with max 3 levels. **Luck**: each level adds +20% to ALL non-COMMON rarity chances (Lv1=1.2x, Lv5=2.0x). **Coin Multiplier**: each level adds +0.20x to all coin earnings (Lv1=1.2x, Lv5=2.0x). **Roll Speed**: each level reduces dice animation delay by 72ms (base 1600ms, min 200ms). **Lucky Roll**: every 5th roll when upgrade > 0, boosted rarity chances scaling with level (+0.25x per level). **Equip Slots**: adds starting equip slots (base 2, each level adds 1, max 5). Accessible via the coin counter on DiceRollScreen.
 
 ### `LeverageTelemetry` (`data/LeverageTelemetry.kt`)
 
@@ -483,15 +545,16 @@ data class WorkoutSession(
 
 ## 5. Data Storage
 
-**No database.** All data is persisted as a JSON file on the device.
+**No database.** All data is persisted as two JSON files on the device.
 
-- **File location:** `context.filesDir/prs.json`
-- **Format:** Gson-serialized `StorageData` object (top-level object with `exercises`, `goals`, `weightEntries`, `settings`, `restDays`, `runEntries`, `runningPRs`, `workoutPresets`, `workoutSession`, `workoutHistory`, `totalXp`, and `xpBootstrapped` fields)
-- **Backward compatibility:** Old format (plain `List<Exercise>` array) is detected and migrated on load
+- **App data file:** `context.filesDir/prs.json`
+- **Pet data file:** `context.filesDir/pets.json`
+- **Format:** Gson-serialized `StorageData` object (app) and `PetStorageData` object (pets)
+- **Backward compatibility:** Old format (plain `List<Exercise>` array) is detected and migrated on load; old `prs.json` with embedded pet fields is auto-migrated to `pets.json`
 - **Load timing:** Called once in `PRViewModel.init{}`
-- **Save timing:** Called after every mutation (add/delete exercise, log/delete entry, add/delete goal, clear all, log/delete weight, update settings, pin/unpin, reorder)
+- **Save timing:** App data saved after every exercise/goal/weight/setting mutation. Pet data saved independently after every dice roll, fuse, sell, upgrade, equip, or favorite operation (avoids rewriting app JSON on every pet action).
 
-### `StorageData` wrapper
+### `StorageData` wrapper (app data — `prs.json`)
 
 ```kotlin
 @Immutable
@@ -507,11 +570,38 @@ data class StorageData(
     val workoutSession: WorkoutSession? = null,
     val workoutHistory: List<WorkoutSession> = emptyList(),
     val totalXp: Long = 0L,             // Accumulated XP across all time
-    val xpBootstrapped: Boolean = false  // True once retroactive XP migration has run
+    val xpBootstrapped: Boolean = false, // True once retroactive XP migration has run
+    val petInventory: List<Pet> = emptyList(),       // All collected pets (with tier, stars)
+    val totalRolls: Long = 0L,                       // Lifetime dice rolls
+    val rollsSinceEpicOrAbove: Long = 0L,            // Pity counter for epic+ (soft pity at 150)
+    val rollsSinceLegendary: Long = 0L,              // Hard pity: guaranteed legendary at 401
+    val rollsSinceMythical: Long = 0L,               // Hard pity: guaranteed mythical at 2001
+    val lastDiceRollTimestamp: Long = 0L,            // Timestamp of last roll
+    val coins: Long = 0L,                             // Pet dice coins (earned on every roll)
+    val petUpgrades: Map<String, Int> = emptyMap()    // Upgrade ID → level (e.g. "luck" → 3)
 )
 ```
 
-`restDays` is a list of date strings where the user explicitly marked a rest day. Defaults to empty list for backward compatibility with old JSON files — no migration needed. `runEntries` and `runningPRs` both have defaults for Gson backward compat. `workoutPresets` defaults to empty list for backward compatibility. `workoutSession` defaults to null for backward compatibility. `workoutHistory` defaults to empty list for backward compatibility with older JSON files. `totalXp` and `xpBootstrapped` default to 0L and false for Gson backward compat.
+`restDays` is a list of date strings where the user explicitly marked a rest day. Defaults to empty list for backward compatibility with old JSON files — no migration needed. `runEntries` and `runningPRs` both have defaults for Gson backward compat. `workoutPresets` defaults to empty list for backward compatibility. `workoutSession` defaults to null for backward compatibility. `workoutHistory` defaults to empty list for backward compatibility with older JSON files. `totalXp` and `xpBootstrapped` default to 0L and false for Gson backward compat. All pet fields (`petInventory`, `totalRolls`, `rollsSinceEpicOrAbove`, `rollsSinceLegendary`, `rollsSinceMythical`, `lastDiceRollTimestamp`, `coins`, `petUpgrades`) default to empty/0L for Gson backward compat.
+
+### `PetStorageData` wrapper (pet data — `pets.json`)
+
+```kotlin
+@Immutable
+data class PetStorageData(
+    val petInventory: List<Pet> = emptyList(),
+    val totalRolls: Long = 0L,
+    val rollsSinceEpicOrAbove: Long = 0L,
+    val rollsSinceLegendary: Long = 0L,
+    val rollsSinceMythical: Long = 0L,
+    val lastDiceRollTimestamp: Long = 0L,
+    val coins: Long = 0L,
+    val petUpgrades: Map<String, Int> = emptyMap(),
+    val equippedPetIds: List<String> = emptyList()  // IDs of equipped pets (max 2-5 slots)
+)
+```
+
+Separate from `StorageData` to avoid rewriting the full app JSON on every pet action. Auto-migrated from old `prs.json` on first launch via `StorageManager.migrateIfNeeded()`.
 
 ### `StorageManager` (`data/StorageManager.kt`)
 
@@ -522,7 +612,10 @@ data class StorageData(
 | `loadExercises(): List<Exercise>`                                                                                                                                    | Convenience wrapper — calls `loadData()` and returns only exercises.                                                                                                                                                            |
 | `saveExercises(List<Exercise>)`                                                                                                                                      | Preserves existing goals, weight entries, settings, and restDays; saves updated exercises.                                                                                                                                      |
 | `loadFullData(): StorageData`                                                                                                                                        | Reads `prs.json` and returns the full `StorageData` object (for the settings screen).                                                                                                                                           |
-| `saveFullData(exercises, goals, weightEntries, settings, restDays, runEntries, runningPRs, workoutPresets, workoutSession, workoutHistory, totalXp, xpBootstrapped)` | Saves the full `StorageData` object (all twelve fields: exercises, goals, weight entries, settings, restDays, run entries, running PRs, workout presets, workout session, workout history, total XP, and XP bootstrapped flag). |
+| `saveFullData(...)` | Saves the full `StorageData` object (all nineteen fields) to `prs.json`.                                                                                         |
+| `loadPetData(): PetStorageData`                                                                                                                                      | Reads `pets.json` and returns the full `PetStorageData` object. Falls back to migrating pet fields from old `prs.json` via `migrateIfNeeded()`.                                                                                 |
+| `savePetData(...)` | Saves the full `PetStorageData` object (9 fields) to `pets.json`. Only called for pet-specific operations (dice roll, fuse, sell, upgrade, equip, favorite).                                                                    |
+| `migrateIfNeeded()` | One-time migration: moves pet fields from old `prs.json` to `pets.json`. Deletes pet fields from `prs.json` after migration.                                                                                                     |
 
 ---
 
@@ -559,6 +652,10 @@ data class StorageData(
 | `"workout_session/{presetId}"` | `WorkoutSessionScreen`       | `presetId: String`   |
 | `"exercise_history"`           | `ExerciseHistoryScreen`      | None                 |
 | `"workout_history"`            | `WorkoutHistoryScreen`       | None                 |
+| `"rest_game"`                  | `RestGameScreen`             | None                 |
+| `"dice_roll"`                  | `DiceRollScreen`             | None                 |
+| `"pet_inventory"`              | `PetInventoryScreen`         | None                 |
+| `"pet_upgrades"`               | `PetUpgradesScreen`          | None                 |
 
 Helper functions in the `Routes` object:
 
@@ -628,6 +725,17 @@ LogWeightScreen ──back────→ pops back to WeightScreen
 GoalsScreen ──"RANK EVALUATOR" button──→ RankScreen
 
 RankScreen ──back──→ pops back to GoalsScreen
+
+GoalsScreen ──"REST GAME" button──→ RestGameScreen
+
+RestGameScreen ──back──→ pops back to GoalsScreen
+
+GoalsScreen ──"PET DICE" button──→ DiceRollScreen
+
+DiceRollScreen ──back──→ pops back to GoalsScreen
+
+DiceRollScreen ──"INVENTORY" button──→ PetInventoryScreen
+PetInventoryScreen ──back──→ pops back to DiceRollScreen
 
 CalendarScreen ──bottom nav──→ any other bottom nav route
 CalendarScreen ──tap WORKOUT day──→ shows popup with exercises logged that day
@@ -723,7 +831,7 @@ val TierSystemOverride = Color(0xFFB026FF)  // Neon purple (same as SuccessPurpl
 ### 8.1 DashboardScreen
 
 - **Animated background:** `GridBackground()` composable with slowly drifting grid lines.
-- **Title:** "PR TRACKER" in `displayLarge` Monospace with a glowing cyan underline drawn via `drawBehind`.
+- **Title:** "PR TRACKER" in `displayLarge` Monospace with a glowing cyan underline drawn via `drawBehind`. Below the title, shows equipped pet emojis with "+X% XP" text when pets are equipped.
 - **Search bar:** `OutlinedTextField` at top with search icon, filters exercises by name in real time.
 - **Exercise grid:** `LazyVerticalGrid` with 2 columns. Exercises are split into two sections:
 
@@ -821,8 +929,9 @@ val TierSystemOverride = Color(0xFFB026FF)  // Neon purple (same as SuccessPurpl
 - **Mascot speech toggle:** Switch inside a `GlowingCard`. Reads/writes `appSettings.speechesEnabled` field through `viewModel.toggleSpeeches()`. Controls whether the HomeScreen robot mascot plays voice lines on tab entry.
 - **Weight unit toggle:** Two pill buttons ("KG" / "LBS") inside a `GlowingCard`. Reads/writes the `weightUnit` field in `AppSettings` via `viewModel.setWeightUnit()`. When changing to "LBS", all weight values in WeightScreen are multiplied by 2.20462; the stored JSON always uses kilograms.
 - **Target weight field:** Optional `OutlinedTextField` to set a target body weight. When set, a horizontal dashed green line appears on the WeightScreen chart at the target value (auto-converted to current display unit).
-- **"EXPORT DATA" button:** Calls `exportToDownloads(context)` which copies `prs.json` to the Downloads folder using `MediaStore.Downloads` (API 29+) or direct file copy (older). Shows success dialog.
+- **"EXPORT DATA" button:** Opens a type picker dialog with APP / PET / BOTH pills showing data summary per type. Exports to Downloads with type-specific filenames (APP → `prtracker_app_backup.json`, PET → `prtracker_pets_backup.json`, BOTH → `prtracker_backup.json`). Uses `MediaStore.Downloads` (API 29+) or direct file copy (older). Shows success dialog.
 - **"CLEAR ALL DATA" button:** Confirmation dialog, then calls `viewModel.clearAllData()` (clears both exercises and goals).
+- **"WIPE PET DATA" button:** Red button with 3x confirmation dialog (Step 1: list what's wiped, Step 2: are you sure, Step 3: final confirmation). Calls `viewModel.clearPetData()`.
 - **"DEVICE SYNC" section:** Two buttons inside a `GlowingCard`:
   - **"SHARE DATA"** — navigates to `SyncExportScreen` which writes `prs.json` to cache and opens Android's share sheet to send it to another device
   - Import info text: "To import: open a prtracker_backup.json file from your file manager"
@@ -843,6 +952,8 @@ val TierSystemOverride = Color(0xFFB026FF)  // Neon purple (same as SuccessPurpl
 - **FAB:** Bottom-right, glowing cyan `+` button, navigates to `AddGoalScreen`.
 
 - **Rank Evaluator button:** Full-width styled button between the goals list and the Leverage Index section. Uses the same style as `NeonButton` (cyan accent 15% alpha fill, 16dp rounded corners, gradient border overlay) with `Icons.Default.Stars` on the left and "RANK EVALUATOR" in monospace uppercase. On click, navigates to `RankScreen` via `navController.navigate(Routes.RANK)`. The gradient border `Brush` is cached in `remember { }`. Vertical spacing of 12dp on both sides is provided by the `LazyColumn`'s `Arrangement.spacedBy(12.dp)`.
+
+- **Pet Dice button:** Full-width styled button below the Rank Evaluator button. Uses `DiceIcon` (or `Casino` icon) with "PET DICE" label. On click, navigates to `DiceRollScreen` via `navController.navigate(Routes.DICE_ROLL)`. Shows a coin balance badge with the player's current coins.
 
 #### RSI Section (below goals list)
 
@@ -905,8 +1016,8 @@ val TierSystemOverride = Color(0xFFB026FF)  // Neon purple (same as SuccessPurpl
 
 - **Back button** (arrow icon) in top-left.
 - **Title:** "SYNC EXPORT" in `headlineLarge`.
-- **Data summary:** Shows all 6 data types being exported: exercises, goals, weight entries, presets, runs, and workouts.
-- **Export flow:** On screen entry, `prs.json` is written to the app's cache directory. Android's share sheet (`Intent.ACTION_SEND` with `application/json` mime type) is then opened, allowing the user to send the file to another device via Bluetooth, email, messaging apps, cloud storage, etc. The shared file is named `prtracker_backup.json`.
+- **Type selection:** Three pill buttons at top: APP DATA, PET DATA, BOTH. Shows data summary per selected type with counts.
+- **Export flow:** On screen entry or type selection, the selected data is serialized to JSON and written to the app's cache directory. Android's share sheet (`Intent.ACTION_SEND` with `application/json` mime type) is then opened, allowing the user to send the file to another device via Bluetooth, email, messaging apps, cloud storage, etc. The shared file is named per type: `prtracker_app_backup.json` (APP), `prtracker_pets_backup.json` (PET), or `prtracker_backup.json` (BOTH).
 - **FileProvider:** The cache file is shared via the app's `FileProvider` (configured in `file_paths.xml` for `cache/share/` path) to comply with Android's `FLAG_GRANT_READ_URI_PERMISSION` requirement.
 - **Success state:** After the share sheet completes, shows a brief confirmation toast or snackbar.
 - **Complete/back:** Pops back to SettingsScreen on back press or after share completes.
@@ -1184,11 +1295,84 @@ val TierSystemOverride = Color(0xFFB026FF)  // Neon purple (same as SuccessPurpl
   - Current tier from `viewModel.tierResult` (tier name + number)
   - Current level + XP progress bar from `LevelProgressCard` (`viewModel.currentLevel`, `viewModel.xpInCurrentLevel`, `viewModel.xpNeededForLevelUp`)
   - Total exercise count
+  - Equipped pet emojis with "+X% XP" text when pets are equipped
   - "ONLINE" status indicator
 - **System readout text:** Below the stats card, shows two text lines: "ALL SYSTEMS NOMINAL" and "OFFLINE MODE -- DATA SECURED" in small Monospace.
 - **Navigation button:** A single styled "ENTER SYSTEM" button that navigates to `DashboardScreen`.
 - **Visual styling:** Uses `LocalAppearance.current` colors throughout for the mascot, stats card, and button. All rendering uses native Canvas APIs with `Paint` objects cached in `remember {}`.
 - **Behavior:** Acts as an entry point / landing screen. No data collection happens here — reads state passively. Accessible via bottom nav "Home" icon.
+
+### 8.24 DiceRollScreen
+
+- **Animated background:** `GridBackground()` composable.
+- **Full-screen layout:** No bottom nav bar (hidden via `showBottomBar` logic).
+- **States:** Four states managed by `DiceRollState` enum — `IDLE`, `ROLLING`, `REVEAL`, `PET_DETAIL`.
+- **Color scheme:** All interactive elements use hardcoded `Color(0xFFFFD700)` (gold) as accent.
+- **Title row:** Back arrow (arrow icon) in top-left, "PET DICE" title in `headlineMedium` Monospace centered.
+- **Combined stats + controls + coins row:** Below the title, a single horizontal `Row` with `SpaceBetween` arrangement containing:
+  - Left: Roll count and pity counters (EPIC+, LEGENDARY, MYTHICAL) in small Monospace
+  - Center: AUTO toggle button (`Icons.Default.Autorenew`) — toggles auto-roll on/off via `viewModel.toggleAutoRoll()`, uses `autoRoll` StateFlow from ViewModel (persists across navigation)
+  - Right: Coin balance with `Coins` icon and animated count-up via `Animatable`
+- **Lucky countdown:** Below the stats row, shows "LUCKY IN X" text (X = rollsUntilLucky - 1) in gold, or "LUCKY ROLL!" when a lucky roll is ready (rollsUntilLucky == 1). Only visible when lucky_roll upgrade > 0.
+- **Equipped pets row:** If any pets are equipped, shows a row of equipped pet emojis with a "+X% XP" text in green monospace. Tap an emoji to unequip that pet. Below the inventory button.
+- **Inventory button:** Centered row showing "📦 INVENTORY (count)" with accent color pill. Navigates to `PetInventoryScreen` via `navController.navigate(Routes.PET_INVENTORY)`.
+- **IDLE state:** `IdleDiceView` — 160dp gold `Casino` icon button that triggers roll. "TAP TO ROLL" label.
+- **ROLLING state:** `RollingDiceView` — 3D dice rotation via `graphicsLayer { rotationX/rotationY }`, gold border, sparkle particles around the dice, "ROLLING..." label with pulsing animation.
+- **REVEAL state:** Split layout — top area (weight 1f) shows `RevealView` (pet emoji, rarity badge, name, stars, "1 in X CHANCE" display floored at 2, "TAP TO DISMISS" text). Bottom area (220dp) shows idle dice — **tappable to roll again** without dismissing the reveal first. RevealView is scrollable via `verticalScroll` so all content fits.
+- **PET_DETAIL state:** Full-screen `PetDetailView` overlay (bottom dice area hidden) showing:
+  - Large pet emoji in center with tier-colored border glow
+  - Pet name in Monospace
+  - Rarity badge pill (color-coded)
+  - Tier badge pill (color-coded with tier label)
+  - Stars display (★/☆, gold when >= 3 stars)
+  - **Favorite toggle** — star icon button, toggles `isFavorited` with haptic feedback
+  - **FUSE button** (visible when 5★ and not max tier) — upgrades pet to next tier, consumes old pet, resets stars to 1. Calls `viewModel.fusePet(petId)`.
+  - **SELL button** — sells pet for coin value (baseCoins × tierMultiplier × stars). Calls `viewModel.sellPet(petId)`. Shows confirmation dialog before selling.
+  - "TAP TO DISMISS" text below
+- **Auto-roll loop:** A separate `LaunchedEffect(autoRoll)` runs a continuous `while` loop checking `rollState`. On IDLE: triggers roll + dice animation. On REVEAL: waits rollDelay then triggers next roll. On PET_DETAIL: silently calls `viewModel.rollDice()` every 2s without changing state. On ROLLING: waits. Auto-roll only stops via explicit toggle — navigating away, fusing, viewing pets don't stop it.
+- **Merge import:** MERGE mode deduplicates pets by ID, keeps higher tier then higher stars, `maxOf` for coins.
+- **Coin counter:** Clickable, navigates to `PetUpgradesScreen` via `navController.navigate(Routes.PET_UPGRADES)`.
+- **Roll speed:** Dice animation delay scales with `roll_speed` upgrade level (`maxOf(200, 1600 - level * 72)` ms).
+- **Navigation:** Accessed via "PET DICE" button on GoalsScreen.
+
+### 8.25 PetInventoryScreen
+
+- **Animated background:** `GridBackground()` composable.
+- **Full-screen layout:** No bottom nav bar (hidden via `showBottomBar` logic).
+- **Back button:** ArrowBack icon in top-left, pops back to DiceRollScreen via `navController.popBackStack()`.
+- **Title:** "INVENTORY (N)" in `headlineMedium` Monospace gold, where N is total pet count.
+- **Search bar:** `OutlinedTextField` below title with search icon, filters pets by name, rarity, or tier (case-insensitive `contains`).
+- **Sort controls:** Row with sort mode dropdown (`ExposedDropdownMenuBox`: TYPE / RARITY / VALUE / XP) and ascending/descending toggle arrow button. Default: VALUE descending. Favorites always pinned to top regardless of sort.
+- **Pet grid:** `LazyVerticalGrid` with 4 columns showing all owned pets sorted by favorites first, then by selected sort mode. Each `PetCollectionCard` shows emoji + pet name (truncated) with tier-specific visual effects:
+  - NORMAL: rarity border color
+  - SILVER: gradient border + animated shimmer overlay
+  - GOLDEN: gold gradient fill
+  - RAINBOW: animated cycling hue rotation
+  - DARK_MATTER: pulsing purple glow with scale pulse
+  - RED_MATTER: pulsing red glow with heat shimmer translation
+  - Starred pets (>= 3★) have a gold border glow
+  - 5★ NORMAL pets show a pulsing gold border indicating upgrade-ready
+  - Green checkmark badge when equipped
+- **Tap opens PET_DETAIL:** Tapping a pet card replaces the grid with `PetDetailView` inline (not a separate route). Shows all pet details including equip/unequip button.
+- **Long-press for quick favorite toggle** with haptic feedback.
+- **Action buttons row:** FUSE ALL and SELL ALL buttons at the bottom (outside grid, fixed). Each has a confirmation dialog.
+- **Merge import:** MERGE mode deduplicates pets by ID, keeps higher tier then higher stars, `maxOf` for coins.
+- **Navigation:** Accessed via "INVENTORY" button on DiceRollScreen.
+
+### 8.26 PetUpgradesScreen
+
+- **Animated background:** `GridBackground()` composable.
+- **Back button:** ArrowBack icon in top-left, tinted with `systemAccentColor`.
+- **Title:** "PET UPGRADES" in `displayLarge` Monospace with `systemAccentColor`.
+- **Coin balance:** Top-right showing current coins with coin emoji.
+- **Upgrade cards:** `LazyColumn` of `UpgradeCard` composables, one per `PetUpgrade` entry:
+  - Upgrade name in accent color, current level / max level in secondary text
+  - Purchase button (gold coin styling) showing cost, disabled when can't afford
+  - "MAX" badge when at max level (neon green)
+  - Description text in secondary color
+  - 10-segment progress bar showing purchased levels in accent color
+  - Effect preview text showing next-level benefit
+- **Navigation:** Accessed via coin counter tap on `DiceRollScreen`.
 
 ---
 
@@ -1222,17 +1406,27 @@ Extends `AndroidViewModel(application)` for app context access.
 | `currentLevel`       | `StateFlow<Int>`                                  | Derived: current level (1–200) from `totalXp` via `XpEngine.levelFromTotalXp()`                                                                                                |
 | `xpInCurrentLevel`   | `StateFlow<Long>`                                 | Derived: XP accumulated within the current level                                                                                                                               |
 | `xpNeededForLevelUp` | `StateFlow<Long>`                                 | Derived: XP required to advance to the next level                                                                                                                              |
+| `petInventory`       | `StateFlow<List<Pet>>`                            | All collected pets, sorted by tier then stars                                                                                                                                  |
+| `totalRolls`         | `StateFlow<Long>`                                 | Lifetime dice roll count                                                                                                                                                       |
+| `rollsSinceEpicOrAbove` | `StateFlow<Long>`                              | Soft pity counter: Epic+ chance +1% per roll after 150 rolls                                                                                                                  |
+| `rollsSinceLegendary` | `StateFlow<Long>`                               | Hard pity: guaranteed legendary at 401 rolls                                                                                                                                   |
+| `rollsSinceMythical` | `StateFlow<Long>`                                | Hard pity: guaranteed mythical at 2001 rolls                                                                                                                                   |
+| `lastDiceRollTimestamp` | `StateFlow<Long>`                              | Timestamp of last dice roll                                                                                                                                                    |
+| `coins`              | `StateFlow<Long>`                                 | Pet dice coins (earned on every roll)                                                                                                                                          |
+| `petUpgrades`        | `StateFlow<Map<String, Int>>`                     | Upgrade ID → level (e.g. "luck" → 3)                                                                                                                                         |
+| `autoRoll`           | `StateFlow<Boolean>`                              | Auto-roll toggle state, persists across navigation                                                                                                                             |
+| `equippedPetIds`     | `StateFlow<List<String>>`                         | IDs of equipped pets (max 2-5 slots), persisted to pets.json                                                                                                                  |
 
 | Function                                            | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `loadData()`                                        | Reads full `StorageData` via `StorageManager.loadFullData()`, loads exercises as-is (no reclassification), runs XP bootstrap on first load (computes total XP from all entries and persists), migrates old workout history sessions (`xpEarned == 0L`) by matching session exercises to exercises and computing XP per completed set, updates all 12 state flows (exercises, goals, weightEntries, appSettings, restDays, runEntries, runningPRs, workoutPresets, activeSession, workoutHistory) + syncs `SoundEngine.volume` |
+| `loadData()`                                        | Reads full `StorageData` via `StorageManager.loadFullData()`, loads exercises as-is (no reclassification), runs XP bootstrap on first load (computes total XP from all entries and persists), migrates old workout history sessions (`xpEarned == 0L`) by matching session exercises to exercises and computing XP per completed set, updates all 19 state flows (exercises, goals, weightEntries, appSettings, restDays, runEntries, runningPRs, workoutPresets, activeSession, workoutHistory, totalXp, petInventory, totalRolls, rollsSinceEpicOrAbove, rollsSinceLegendary, rollsSinceMythical, lastDiceRollTimestamp, coins, petUpgrades, equippedPetIds) + syncs `SoundEngine.volume` |
 | `saveData()`                                        | Writes exercises + goals + weight entries to `StorageManager.saveData()` (private)                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `addExercise(exercise)`                             | Appends with auto-incremented `sortOrder` within the same pin group, then saves. Uses the difficulty from the Exercise constructor (set by AddExerciseScreen). |
 | `renameExercise(exerciseId, newName)`               | Updates exercise name and cascades to goals (exerciseId match), workout presets (exerciseName string match), active session, and workout history. Saves all changes. |
-| `logEntry(exerciseId, entry)`                       | Appends entry to matching exercise, awards XP via `XpEngine.xpForEntry()`, moves exercise to front of list, calls `recalculateTotalXp()` + saves                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `logEntry(exerciseId, entry)`                       | Appends entry to matching exercise, awards XP via `XpEngine.xpForEntry()` multiplied by equipped pet XP multiplier and active potion multiplier, bakes `xpEarned` into entry, moves exercise to front of list, calls `recalculateTotalXp()` + saves                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `deleteExercise(exerciseId)`                        | Removes exercise by ID + removes all associated goals + saves                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `deleteEntry(exerciseId, entryId)`                  | Removes specific entry from exercise, calls `recalculateTotalXp()` + saves                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `clearAllData()`                                    | Resets all 12 state flows to defaults (exercises, goals, weightEntries, appSettings, restDays, runEntries, runningPRs, workoutPresets, activeSession, workoutHistory, allTelemetry) + resets XP + saves                                                                                                                                                                                                                                                                                                                                                        |
+| `clearAllData()`                                    | Resets all state flows to defaults (exercises, goals, weightEntries, appSettings, restDays, runEntries, runningPRs, workoutPresets, activeSession, workoutHistory, allTelemetry, petInventory, totalRolls, rollsSinceEpicOrAbove, rollsSinceLegendary, rollsSinceMythical, lastDiceRollTimestamp, coins, petUpgrades, equippedPetIds) + resets XP + saves                                                                                                                                                                                                                               |
 | `isNewPR(exerciseId, value): Boolean`               | True if value > max existing entry value, or if no entries exist                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `getCurrentPR(exerciseId): Int`                     | Max entry value, or 0                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `getExerciseById(exerciseId): Exercise?`            | Finds exercise by ID                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
@@ -1265,7 +1459,7 @@ Extends `AndroidViewModel(application)` for app context access.
 | `getGoalProgress(exerciseId): Float`                | Returns `currentPR / goal` as Float (can exceed 1.0), or 0f if no goal set                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `isGoalReached(exerciseId): Boolean`                | True if exercise has a goal set and current PR >= goal                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `generateExportJson(): String`                      | Serializes full `StorageData` to JSON string for file export                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `importSyncData(data: StorageData, mode: SyncMode)` | Merges or replaces local data with incoming `StorageData`. REPLACE mode overwrites all 9 state flows (exercises, goals, weight, settings, restDays, runEntries, runningPRs, presets, history) + totalXp. MERGE mode deduplicates exercises by ID/name, merges goals/weight/restDays/presets/history by ID, deduplicates run entries by ID and recomputes running PRs, recomputes totalXp from merged exercises. Both modes preserve exercise difficulty as-is (no reclassification) and recompute XP via `recalculateTotalXp()`.                                                                   |
+| `importSyncData(data: StorageData, mode: SyncMode)` | Merges or replaces local data with incoming `StorageData`. REPLACE mode overwrites all 9 state flows (exercises, goals, weight, settings, restDays, runEntries, runningPRs, presets, history) + totalXp + pet inventory + coins + equippedPetIds. MERGE mode deduplicates exercises by ID/name, merges goals/weight/restDays/presets/history by ID, deduplicates run entries by ID and recomputes running PRs, recomputes totalXp from merged exercises, deduplicates pets by ID (keeps higher tier then higher stars), maxOf for coins. Both modes preserve exercise difficulty as-is (no reclassification) and recompute XP via `recalculateTotalXp()`.                                                                   |
 | `SyncMode` enum                                     | `REPLACE` — overwrites all local data; `MERGE` — deduplicates by ID, keeps higher goal value, preserves `isPinned`/`sortOrder`                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `toggleTodayAsRestDay()`                            | Toggles today's date in `_restDays` list, saves to JSON, emits on `_hapticEvent`                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `currentStreak`                                     | Derived via `combine(_exercises, _restDays)` — walks backwards from today counting workout days, preserving chain through rest days, breaking on missed days                                                                                                                                                                                                                                                                                                                                                                                                   |
@@ -1282,7 +1476,7 @@ Extends `AndroidViewModel(application)` for app context access.
 | `startWorkout(preset: WorkoutPreset)`               | Creates a new `WorkoutSession` from preset exercises (maps `PresetExercise` to `SessionExerciseProgress` with target value, isHold, totalSets), sets `activeSession`, persists to JSON                                                                                                                                                                                                                                                                                                                                                                         |
 | `completeSetInSession(exerciseIndex, value)`        | Adds a `SessionSetEntry` to the specified exercise's completed sets + saves                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `togglePauseWorkout()`                              | Toggles `isPaused`; on pause records `pausedSinceMs = now`; on resume accumulates `pausedDurationMs += (now - pausedSinceMs)`                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `finishWorkout()`                                   | Logs each completed set as a separate `PREntry` (note: "From workout: {presetName}") to the matching exercise, computes `xpEarned` per set, moves exercise to front, marks session completed, saves completed session to `_workoutHistory`, calls `recalculateTotalXp()` + saves                                                                                                                                                                                                                                                                               |
+| `finishWorkout()`                                   | Logs each completed set as a separate `PREntry` (note: "From workout: {presetName}") to the matching exercise, computes `xpEarned` per set (with equipped pet multiplier and active potion multiplier), moves exercise to front, marks session completed, saves completed session to `_workoutHistory`, calls `recalculateTotalXp()` + saves                                                                                                                                                                                                                                                                               |
 | `discardWorkout()`                                  | Sets `activeSession = null`, discards all progress                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `autoPauseWorkout()`                                | If session is active and not already paused/completed, sets `isPaused = true` and records `pausedSinceMs` (called on screen leave)                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `deleteWorkoutHistoryEntry(sessionId: String)`      | Removes a session from `_workoutHistory` by ID + saves                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -1293,6 +1487,21 @@ Extends `AndroidViewModel(application)` for app context access.
 | `deletePreset(id: String)`                          | Removes preset by ID + saves                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `togglePresetPin(id: String)`                       | Toggles `isPinned` on matching preset + saves                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `reorderPresets(from: Int, to: Int)`                | Removes item at `from` index from sorted list, inserts at `to`, rewrites all `sortOrder` values + saves                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `rollDice(): Pet`                                    | Weighted random rarity selection with pity system (soft pity at 150 rolls for Epic+, hard pity at 401 for Legendary, 2001 for Mythical). Luck upgrade adds +20%/level to ALL non-COMMON rarity chances. Lucky Roll: every 5th roll when lucky_roll > 0, boosted rarity chances scaling with level (+0.25x per level). Finds existing pet by `speciesId + tier` for star upgrade; if already 5★ NORMAL, creates a new copy. Awards coins = `pet.coinValue()` × coin_multiplier upgrade on every roll (coin value includes stars multiplier). Returns `RollResult(pet, effectiveChances, isLuckyRoll)` where `effectiveChances` are the actual boosted chances used for the roll. Saves to JSON. |
+| `toggleAutoRoll()`                                   | Toggles `_autoRoll` StateFlow (persists across navigation). Does NOT save to JSON — transient toggle.                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `purchaseUpgrade(upgrade)`                           | Buys the next level of a PetUpgrade if affordable. Deducts coins, increments level in `_petUpgrades`, saves to JSON.                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `fusePet(petId: String)`                             | Finds pet by ID, requires 5★ and not max tier. Removes old pet, creates new pet with `tier = nextTier`, `stars = 1`, new UUID. Removes old pet ID from equipped list. Saves to JSON.                                                                                                                                                                                                                                                                                   |
+| `sellPet(petId: String)`                             | Removes pet by ID, adds `pet.coinValue()` to coins. Removes pet ID from equipped list. Saves to JSON.                                                                                                                                                                                                                                                                                                                                                              |
+| `equipPet(petId: String)`                            | Adds pet ID to `_equippedPetIds` (up to max slots). Saves to pets.json.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `unequipPet(petId: String)`                          | Removes pet ID from `_equippedPetIds`. Saves to pets.json.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `petXpMultiplier(): Double`                          | Returns 1.0 + sum of (pet.xpMultiplier() - 1.0) for each equipped pet (additive stacking). Used as multiplicand in logEntry() and finishWorkout().                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `maxEquipSlots(): Int`                               | Returns 2 + upgrade level of EQUIP_SLOTS (max 5).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `clearPetData()`                                     | Resets pet inventory, coins, upgrades, rolls, pity counters, equipped pets to defaults. Saves to pets.json.                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `generateAppExportJson(): String`                    | Serializes app-only StorageData (without pet fields) to JSON for APP export.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `generatePetExportJson(): String`                    | Serializes PetStorageData to JSON for PET export.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `importAppData(json: String)`                        | Parses JSON as StorageData, applies REPLACE or MERGE to app state flows, saves to prs.json.                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `importPetData(json: String)`                        | Parses JSON as PetStorageData, applies REPLACE or MERGE to pet state flows, saves to pets.json.                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `mergePetData(incoming: List<Pet>, newCoins: Long, ...)` | Deduplicates pets by ID (keeps higher tier then higher stars), maxOf for coins. Saves to pets.json.                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 **Period window logic** (used by both `getProgressForGoal` and `GoalNotificationWorker`):
 
@@ -1591,6 +1800,40 @@ Deleted in v1.1 (File-Based Import/Export feature). Replaced by `SyncExportScree
 15. **Locked Exercise Difficulty** — Removed automatic difficulty reclassification from `addExercise()`, `loadData()`, and `importSyncData()`. Exercise difficulty is now set once at creation (auto-classified by `ExerciseClassifier.classify()` or manually overridden by the user) and never changed afterward. The `ExerciseClassifier` import was removed from `PRViewModel`.
 
 16. **Exercise Rename** — Added `renameExercise(exerciseId, newName)` to `PRViewModel` that updates the exercise name and cascades to goals, workout presets, active session, and workout history. Added pencil icon button in the `ExerciseDetailScreen` header row that opens a rename dialog with `OutlinedTextField`. Added chart Y-axis fix: `axisMinimum = 0f` forces zero at the bottom with no upper limit.
+
+17. **Pet Dice Roll Mini-game** — Added `Pet` data model with 6 rarity tiers (COMMON→MYTHICAL, 45%→0.1% drop rate), 6 evolution tiers (NORMAL→RED_MATTER, 1x→32x coin multiplier), and 18 placeholder species. Added `DiceRollScreen` with IDLE/ROLLING/REVEAL/PET_DETAIL states, 3D dice animation, pity system (soft pity at 150 for Epic+, hard pity at 401 for Legendary, 2001 for Mythical), auto-roll toggle that persists across navigation, scrollable collection grid with tier-specific visual effects, pet fusion (5★ → next tier, consumes old pet), pet selling for coins, and animated coin counter. Added `petInventory`, `totalRolls`, `rollsSinceEpicOrAbove`, `rollsSinceLegendary`, `rollsSinceMythical`, `lastDiceRollTimestamp`, `coins` fields to `StorageData` with Gson-safe defaults. Added `rollDice()`, `fusePet()`, `sellPet()`, `toggleAutoRoll()` to `PRViewModel`. MERGE import deduplicates pets by ID (keeps higher tier then higher stars), maxOf for coins.
+
+18. **Pet Upgrade Shop** — Added `PetUpgrade` enum with 3 upgrades: LUCK (+5%/level Epic+ pity bonus, Lv1=+5%, Lv10=+50%), ROLL_SPEED (dice animation delay −100ms/level, base 1600ms, min 600ms), LUCKY_ROLL (every 5th roll guaranteed Silver with coin multiplier, Lv1=2.5x, Lv10=11.5x). Each upgrade has 10 levels with exponential cost scaling (LUCK base 500 × 1.8x, ROLL_SPEED base 300 × 1.7x, LUCKY_ROLL base 1000 × 2.0x). Added `petUpgrades: Map<String, Int>` field to `StorageData` (Gson-safe default `emptyMap()`). Added `PetUpgradesScreen` with upgrade cards, progress bars, purchase buttons, coin balance. Added `purchaseUpgrade()` and `getUpgradeLevel()` to `PRViewModel`. DiceRollScreen coin counter is clickable and navigates to `PetUpgradesScreen`. Dice animation delay reads `roll_speed` upgrade level.
+
+19. **Dice Tap-to-Roll** — During REVEAL state, the bottom dice is now tappable to trigger a new roll directly (sets ROLLING with dice animation). Previously required tapping the pet showcase to dismiss then tapping dice. Removes the need for a two-step dismiss+roll flow.
+
+20. **Lucky Countdown Display** — Lucky roll countdown text now shows "LUCKY IN X" where X = rollsUntilLucky - 1 (e.g. "LUCKY IN 4" → "LUCKY IN 3" → "LUCKY IN 2" → "LUCKY IN 1"). When rollsUntilLucky == 1, displays "LUCKY ROLL!" in gold. Previously showed the raw counter value.
+
+21. **Roll Chance Floor** — "1 in X CHANCE" display on pet reveal now floors at 2 (coerceAtLeast(2)). Never shows "1 in 1 CHANCE" which was misleading.
+
+22. **RevealView Scrollable** — Pet reveal content (RevealView) is now scrollable via `verticalScroll` so all content ("TAP TO DISMISS" text, rarety badge, stars) is fully visible on all screen sizes. Removed "NEW!" text and unused `isNewPet` state variable. Later removed "+coins" animation from reveal.
+
+23. **Coin Multiplier Upgrade** — Added `COIN_MULTIPLIER` to `PetUpgrade` enum (baseCost=600, costMultiplier=1.16f). Each level adds +0.20x to all coin earnings (rolls, fusing, selling). Infinite levels with exponential cost scaling. Applied in `rollDice()` via `getUpgradeLevel(PetUpgrade.COIN_MULTIPLIER)`. Effect text: "Coins: X.Xx per roll (+0.20x per level)".
+
+24. **Inventory Modal Bottom Sheet** — Pet collection grid moved from always-on-screen to a `ModalBottomSheet` triggered by an inventory button ("📦 INVENTORY (count)"). Sheet contains the same LazyVerticalGrid (4-column, sorted favorites-first), FUSE ALL, SELL ALL buttons, and close button. Sheet dismisses when tapping a pet card (which then opens PET_DETAIL). Long-press for quick favorite toggle with haptic feedback. Note: later replaced by dedicated `PetInventoryScreen` full-screen route (see item 32).
+
+25. **Dice Layout Restructure** — DiceRollScreen split into two zones: top area (weight 1f) for REVEAL/PET_DETAIL content, bottom area (220dp fixed) for dice. Dice shown during IDLE/ROLLING/REVEAL, hidden during PET_DETAIL. PetDetailView expands via weight(1f) during PET_DETAIL state.
+
+26. **Pet Equip System** — Added `equipPet()`, `unequipPet()`, `petXpMultiplier()`, `maxEquipSlots()` to PRViewModel. Pets give XP multiplier based on rarity × tier × stars (additive stacking). Added `EQUIP_SLOTS` upgrade to PetUpgrade (fixed costs: 1M/10M/100M for 3/4/5 slots). Added `equippedPetIds` to `PetStorageData`, persisted to `pets.json`. Equipped pets shown on DiceRollScreen (emoji row + XP mult text), DashboardScreen (badges + XP mult), and HomeScreen (badges + XP mult). Equip/Unequip button in PetDetailView. Green checkmark badge on equipped PetCollectionCard. Cleaned equipped IDs on sell/fuse to prevent ghost slots.
+
+27. **Split Storage** — App data (`prs.json`) and pet data (`pets.json`) now stored in separate JSON files. `PetStorageData` data class holds 9 pet-specific fields. Auto-migration from old `prs.json` on first launch via `StorageManager.migrateIfNeeded()`. Pet-only operations (roll, fuse, sell, upgrade, equip, favorite) write only `pets.json` for performance. `loadFullData()` reads both files; `saveFullData()` writes both files.
+
+28. **Wipe Pet Data** — Added red "WIPE PET DATA" button in Settings with 3x confirmation (Step 1: list what's wiped, Step 2: are you sure, Step 3: final confirmation). Calls `viewModel.clearPetData()`.
+
+29. **Export Data Type Picker** — SettingsScreen EXPORT DATA button opens dialog with APP / PET / BOTH pills. Shows data summary per type. Exports to Downloads with type-specific filenames: APP → `prtracker_app_backup.json`, PET → `prtracker_pets_backup.json`, BOTH → `prtracker_backup.json`.
+
+30. **Coin Value × Stars** — `Pet.coinValue()` now returns `base × tierMultiplier × stars` (was `base × tierMultiplier`). Max single pet value: MYTHICAL RED_MATTER 5★ = 2,400,000 coins.
+
+31. **Upgrade Cost Dampening** — Formula changed from `costMultiplier^level` to `costMultiplier^(level × 0.82f)`. COIN_MULTIPLIER at Lv70 costs ~500k (was 3M without dampening). Multipliers also reduced: LUCK 1.12, COIN_MULTIPLIER 1.13, ROLL_SPEED 1.10, LUCKY_ROLL 1.15.
+
+32. **Inventory Full-Screen Route** — Pet collection grid moved from `ModalBottomSheet` to dedicated `PetInventoryScreen` route (`PET_INVENTORY`). Full-screen with back button, search, sort dropdown, 4-column grid, inline pet detail, and FUSE ALL / SELL ALL buttons. Removed ModalBottomSheet and all associated inventory state from DiceRollScreen.
+
+33. **XP Earned Stored on Entries** — `PREntry` now includes `xpEarned: Long = 0L` field storing multiplied XP (pet + potion) at log time. `logEntry()` bakes XP into entry; `finishWorkout()` stores per-set XP. History screens read stored value. Old entries backfilled via migration on first load. `recalculateTotalXp()` now sums `entry.xpEarned` instead of recomputing from scratch.
 
 ---
 

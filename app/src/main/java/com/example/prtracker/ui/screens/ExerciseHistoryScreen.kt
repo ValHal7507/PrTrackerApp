@@ -46,8 +46,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
-import com.example.prtracker.data.XpEngine
-import com.example.prtracker.data.parsedDifficulty
 import com.example.prtracker.ui.components.GridBackground
 import com.example.prtracker.ui.theme.Background
 import com.example.prtracker.ui.theme.CardBackground
@@ -96,7 +94,6 @@ fun ExerciseHistoryScreen(
                 if (entry.value > runningMax) runningMax = entry.value
             }
             for (entry in exercise.entries) {
-                val xp = XpEngine.xpForEntry(entry.value, exercise.type, exercise.parsedDifficulty())
                 allItems.add(
                     ExerciseHistoryItem(
                         exerciseId = exercise.id,
@@ -107,7 +104,7 @@ fun ExerciseHistoryScreen(
                         date = entry.date,
                         note = entry.note,
                         wasPR = entryPRMap[entry.id] ?: false,
-                        xpEarned = xp
+                        xpEarned = entry.xpEarned
                     )
                 )
             }

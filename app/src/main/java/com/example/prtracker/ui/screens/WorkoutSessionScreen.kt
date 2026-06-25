@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import com.example.prtracker.data.SessionExerciseProgress
+import com.example.prtracker.data.PotionType
 import com.example.prtracker.data.XpEngine
 import com.example.prtracker.data.parsedDifficulty
 import com.example.prtracker.ui.components.GridBackground
@@ -70,6 +71,7 @@ fun WorkoutSessionScreen(
 ) {
     val session by viewModel.activeSession.collectAsState()
     val exercises by viewModel.exercises.collectAsState()
+    val activePotion by viewModel.activePotionType.collectAsState()
     var tick by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(session?.isPaused) {
@@ -193,9 +195,11 @@ fun WorkoutSessionScreen(
                     }
                     total
                 }
+                val petMult = viewModel.petXpMultiplier()
+                val displayXp = (earnedXp * petMult * (if (activePotion == PotionType.XP_DOUBLE) 2 else 1)).toLong()
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "XP EARNED: $earnedXp",
+                    text = "XP EARNED: $displayXp",
                     style = MaterialTheme.typography.labelMedium,
                     color = GoalComplete,
                     fontFamily = FontFamily.Monospace

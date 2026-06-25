@@ -65,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import com.example.prtracker.data.PREntry
+import com.example.prtracker.data.PotionType
 import com.example.prtracker.data.SoundEngine
 import com.example.prtracker.data.XpEngine
 import com.example.prtracker.data.parsedDifficulty
@@ -111,7 +112,10 @@ fun HoldTimerScreen(
 
     val elapsedSeconds = (elapsedMillis / 1000L).toInt()
     val timeString = "%02d:%02d".format(elapsedSeconds / 60, elapsedSeconds % 60)
+    val petMult = viewModel.petXpMultiplier()
+    val hasPotion = viewModel.activePotionType.collectAsState().value == PotionType.XP_DOUBLE
     val entryXp = if (elapsedSeconds > 0) XpEngine.xpForEntry(elapsedSeconds, "hold", exercise.parsedDifficulty()) else 0L
+    val displayXp = if (elapsedSeconds > 0) (entryXp * petMult * (if (hasPotion) 2 else 1)).toLong() else 0L
 
     val progressSweep = if (targetSeconds > 0) {
         (elapsedSeconds.toFloat() / targetSeconds).coerceAtMost(1f) * 360f
@@ -252,10 +256,16 @@ fun HoldTimerScreen(
                 }
             }
 
-            if (entryXp > 0L) {
+            if (displayXp > 0L) {
                 Spacer(modifier = Modifier.height(8.dp))
+                val xpLabel = buildString {
+                    append("+$displayXp XP")
+                    if (hasPotion && petMult > 1.0f) append(" (${String.format("%.1f", petMult)}x + 2x)")
+                    else if (hasPotion) append(" (2x)")
+                    else if (petMult > 1.0f) append(" (${String.format("%.1f", petMult)}x)")
+                }
                 Text(
-                    text = "+$entryXp XP",
+                    text = xpLabel,
                     style = MaterialTheme.typography.titleLarge,
                     color = GoalComplete,
                     fontFamily = FontFamily.Monospace
@@ -464,7 +474,7 @@ fun HoldTimerScreen(
 
         PRCelebrationOverlay(
             visible = showCelebration,
-            xpEarned = entryXp,
+            xpEarned = displayXp,
             onDismiss = {
                 showCelebration = false
                 navController.popBackStack()

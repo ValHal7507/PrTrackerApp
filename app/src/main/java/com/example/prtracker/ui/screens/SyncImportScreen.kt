@@ -43,22 +43,44 @@ import com.example.prtracker.ui.theme.TextSecondary
 import com.example.prtracker.viewmodel.PRViewModel
 import com.google.gson.Gson
 
+private enum class ImportFormat { APP, PET, COMBINED }
+
 @Composable
 fun SyncImportScreen(
     viewModel: PRViewModel,
     navController: NavHostController
 ) {
     val gson = remember { Gson() }
-    var parsedData by remember { mutableStateOf<StorageData?>(null) }
+    var parsedStorageData by remember { mutableStateOf<StorageData?>(null) }
+    var parsedPetData by remember { mutableStateOf<com.example.prtracker.data.PetStorageData?>(null) }
+    var detectedFormat by remember { mutableStateOf<ImportFormat?>(null) }
     var parseError by remember { mutableStateOf<String?>(null) }
     var showSuccess by remember { mutableStateOf(false) }
 
-    val json = viewModel.consumePendingImportJson()
+    val json = remember { viewModel.consumePendingImportJson() }
 
     LaunchedEffect(json) {
-        if (json != null && parsedData == null && parseError == null) {
+        if (json != null && detectedFormat == null && parseError == null) {
             try {
-                parsedData = gson.fromJson(json, StorageData::class.java)
+                val hasExercises = json.contains("\"exercises\"")
+                val hasPetInventory = json.contains("\"petInventory\"")
+                when {
+                    hasExercises && hasPetInventory -> {
+                        parsedStorageData = gson.fromJson(json, StorageData::class.java)
+                        detectedFormat = ImportFormat.COMBINED
+                    }
+                    hasExercises -> {
+                        parsedStorageData = gson.fromJson(json, StorageData::class.java)
+                        detectedFormat = ImportFormat.APP
+                    }
+                    hasPetInventory -> {
+                        parsedPetData = gson.fromJson(json, com.example.prtracker.data.PetStorageData::class.java)
+                        detectedFormat = ImportFormat.PET
+                    }
+                    else -> {
+                        parseError = "Unrecognized data format"
+                    }
+                }
             } catch (e: Exception) {
                 parseError = "Invalid JSON file: ${e.message}"
             }
@@ -66,13 +88,6 @@ fun SyncImportScreen(
     }
 
     if (showSuccess) {
-        val importedExercises = viewModel.exercises.value.size
-        val importedGoals = viewModel.goals.value.size
-        val importedWeight = viewModel.weightEntries.value.size
-        val importedPresets = viewModel.workoutPresets.value.size
-        val importedRuns = viewModel.runEntries.value.size
-        val importedHistory = viewModel.workoutHistory.value.size
-
         Box(modifier = Modifier.fillMaxSize()) {
             GridBackground()
             Column(
@@ -93,12 +108,37 @@ fun SyncImportScreen(
                     fontFamily = FontFamily.Monospace
                 )
                 Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "$importedExercises exercises \u00b7 $importedGoals goals \u00b7 $importedWeight weight \u00b7 $importedPresets presets \u00b7 $importedRuns runs \u00b7 $importedHistory workouts",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary,
-                    textAlign = TextAlign.Center
-                )
+                when (detectedFormat) {
+                    ImportFormat.APP -> {
+                        val d = parsedStorageData
+                        if (d != null) {
+                            Text(
+                                text = "${d.exercises.size} exercises \u00b7 ${d.goals.size} goals \u00b7 ${d.weightEntries.size} weight \u00b7 ${d.workoutPresets.size} presets \u00b7 ${d.runEntries.size} runs \u00b7 ${d.workoutHistory.size} workouts",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = TextSecondary,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                    ImportFormat.PET -> {
+                        val d = parsedPetData
+                        if (d != null) {
+                            Text(
+                                text = "${d.petInventory.size} pets \u00b7 ${d.coins} coins \u00b7 ${d.totalRolls} rolls",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = TextSecondary,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                    ImportFormat.COMBINED -> Text(
+                        text = "All app data + pet data",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary,
+                        textAlign = TextAlign.Center
+                    )
+                    null -> {}
+                }
                 Spacer(modifier = Modifier.height(32.dp))
                 NeonButton(
                     text = "GO TO DASHBOARD",
@@ -144,15 +184,8 @@ fun SyncImportScreen(
         return
     }
 
-    val data = parsedData
-    if (data != null) {
-        val exercisesIncoming = data.exercises.size
-        val goalsIncoming = data.goals.size
-        val weightIncoming = data.weightEntries.size
-        val presetsIncoming = data.workoutPresets.size
-        val runsIncoming = data.runEntries.size
-        val historyIncoming = data.workoutHistory.size
-
+    val format = detectedFormat
+    if (format != null) {
         Box(modifier = Modifier.fillMaxSize()) {
             GridBackground()
 
@@ -184,8 +217,13 @@ fun SyncImportScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
+                val formatLabel = when (format) {
+                    ImportFormat.APP -> "App data detected"
+                    ImportFormat.PET -> "Pet data detected"
+                    ImportFormat.COMBINED -> "Combined data detected"
+                }
                 Text(
-                    text = "Choose how to add this data",
+                    text = formatLabel,
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary,
                     textAlign = TextAlign.Center
@@ -205,12 +243,42 @@ fun SyncImportScreen(
                             fontFamily = FontFamily.Monospace
                         )
                         Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "$exercisesIncoming exercises \u00b7 $goalsIncoming goals \u00b7 $weightIncoming weight \u00b7 $presetsIncoming presets \u00b7 $runsIncoming runs \u00b7 $historyIncoming workouts",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TextPrimary,
-                            textAlign = TextAlign.Center
-                        )
+                        when (format) {
+                            ImportFormat.APP -> {
+                                val d = parsedStorageData!!
+                                Text(
+                                    text = "${d.exercises.size} exercises \u00b7 ${d.goals.size} goals \u00b7 ${d.weightEntries.size} weight \u00b7 ${d.workoutPresets.size} presets \u00b7 ${d.runEntries.size} runs \u00b7 ${d.workoutHistory.size} workouts",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = TextPrimary,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                            ImportFormat.PET -> {
+                                val d = parsedPetData!!
+                                Text(
+                                    text = "${d.petInventory.size} pets \u00b7 ${d.coins} coins \u00b7 ${d.totalRolls} rolls \u00b7 ${d.petUpgrades.size} upgrades",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = TextPrimary,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                            ImportFormat.COMBINED -> {
+                                val d = parsedStorageData!!
+                                Text(
+                                    text = "${d.exercises.size} exercises \u00b7 ${d.goals.size} goals \u00b7 ${d.weightEntries.size} weight \u00b7 ${d.workoutPresets.size} presets \u00b7 ${d.runEntries.size} runs \u00b7 ${d.workoutHistory.size} workouts",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = TextPrimary,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "${d.petInventory.size} pets \u00b7 ${d.coins} coins \u00b7 ${d.totalRolls} rolls",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = TextPrimary,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -218,7 +286,11 @@ fun SyncImportScreen(
 
                 Button(
                     onClick = {
-                        viewModel.importSyncData(data, PRViewModel.SyncMode.REPLACE)
+                        when (format) {
+                            ImportFormat.APP -> viewModel.importAppData(json!!, PRViewModel.SyncMode.REPLACE)
+                            ImportFormat.PET -> viewModel.importPetData(json!!, PRViewModel.SyncMode.REPLACE)
+                            ImportFormat.COMBINED -> viewModel.importSyncData(parsedStorageData!!, PRViewModel.SyncMode.REPLACE)
+                        }
                         showSuccess = true
                     },
                     modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -239,7 +311,11 @@ fun SyncImportScreen(
 
                 Button(
                     onClick = {
-                        viewModel.importSyncData(data, PRViewModel.SyncMode.MERGE)
+                        when (format) {
+                            ImportFormat.APP -> viewModel.importAppData(json!!, PRViewModel.SyncMode.MERGE)
+                            ImportFormat.PET -> viewModel.importPetData(json!!, PRViewModel.SyncMode.MERGE)
+                            ImportFormat.COMBINED -> viewModel.importSyncData(parsedStorageData!!, PRViewModel.SyncMode.MERGE)
+                        }
                         showSuccess = true
                     },
                     modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -288,7 +364,7 @@ fun SyncImportScreen(
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "Open a prtracker_backup.json file from your file manager to import data.",
+                    text = "Open a prtracker_backup.json, prtracker_app_backup.json, or prtracker_pets_backup.json file from your file manager to import data.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary,
                     textAlign = TextAlign.Center

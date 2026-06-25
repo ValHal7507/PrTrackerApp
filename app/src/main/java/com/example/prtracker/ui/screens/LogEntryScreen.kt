@@ -1,7 +1,12 @@
 package com.example.prtracker.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,6 +32,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import com.example.prtracker.data.PREntry
+import com.example.prtracker.data.PotionType
 import com.example.prtracker.data.SoundEngine
 import com.example.prtracker.data.XpEngine
 import com.example.prtracker.data.parsedDifficulty
@@ -53,11 +60,13 @@ import com.example.prtracker.ui.components.NeonButton
 import com.example.prtracker.ui.components.PRCelebrationOverlay
 import com.example.prtracker.ui.theme.Background
 import com.example.prtracker.ui.theme.GoalComplete
+import com.example.prtracker.ui.theme.GoalReachedColor
 import com.example.prtracker.ui.theme.PrimaryAccent
 import com.example.prtracker.ui.theme.SuccessPurple
 import com.example.prtracker.ui.theme.TextPrimary
 import com.example.prtracker.ui.theme.TextSecondary
 import com.example.prtracker.viewmodel.PRViewModel
+import kotlinx.coroutines.delay
 import java.util.UUID
 
 @Composable
@@ -73,6 +82,27 @@ fun LogEntryScreen(
     var note by remember { mutableStateOf("") }
     var showCelebration by remember { mutableStateOf(false) }
     var isNewPR by remember { mutableStateOf(false) }
+    var showBonusXp by remember { mutableStateOf(false) }
+    var bonusXpAmount by remember { mutableStateOf(0L) }
+
+    val hasPotion = viewModel.activePotionType.collectAsState().value == PotionType.XP_DOUBLE
+    val petMult = viewModel.petXpMultiplier()
+    val entryXp = if (value > 0 && exercise != null) XpEngine.xpForEntry(value, exercise.type, exercise.parsedDifficulty()) else 0L
+    val displayXp = if (value > 0) (entryXp * petMult * (if (hasPotion) 2 else 1)).toLong() else 0L
+
+    LaunchedEffect(Unit) {
+        viewModel.lastBonusXpEarned.collect { xp ->
+            bonusXpAmount = xp
+            showBonusXp = true
+        }
+    }
+
+    LaunchedEffect(showBonusXp) {
+        if (showBonusXp) {
+            delay(1500L)
+            showBonusXp = false
+        }
+    }
 
     if (exercise == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -82,7 +112,6 @@ fun LogEntryScreen(
     }
 
     val currentPR = viewModel.getCurrentPR(exerciseId)
-    val entryXp = if (value > 0) XpEngine.xpForEntry(value, exercise.type, exercise.parsedDifficulty()) else 0L
     val valueColor by animateColorAsState(
         targetValue = if (isNewPR) SuccessPurple else PrimaryAccent,
         animationSpec = tween(300)
@@ -231,12 +260,18 @@ fun LogEntryScreen(
                 }
             }
 
-            if (entryXp > 0L) {
+            if (displayXp > 0L) {
                 Spacer(modifier = Modifier.height(8.dp))
+                val xpLabel = buildString {
+                    append("+$displayXp XP")
+                    if (hasPotion && petMult > 1.0f) append(" (${String.format("%.1f", petMult)}x + 2x)")
+                    else if (hasPotion) append(" (2x)")
+                    else if (petMult > 1.0f) append(" (${String.format("%.1f", petMult)}x)")
+                }
                 Text(
-                    text = "+$entryXp XP",
+                    text = xpLabel,
                     style = MaterialTheme.typography.titleLarge,
-                    color = GoalComplete,
+                    color = if (hasPotion) GoalReachedColor else GoalComplete,
                     fontFamily = FontFamily.Monospace,
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center
@@ -277,7 +312,15 @@ fun LogEntryScreen(
             Spacer(modifier = Modifier.weight(1f))
 
             NeonButton(
-                text = "LOG IT",
+                text = buildString {
+                    append("LOG IT")
+                    if (hasPotion || petMult > 1.0f) {
+                        append("  ")
+                        if (petMult > 1.0f && hasPotion) append("${String.format("%.1f", petMult * 2)}x")
+                        else if (hasPotion) append("2x")
+                        else append("${String.format("%.1f", petMult)}x")
+                    }
+                },
                 onClick = {
                     if (appSettings.hapticEnabled) {
                         val vibrator = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
@@ -322,7 +365,7 @@ fun LogEntryScreen(
 
         PRCelebrationOverlay(
             visible = showCelebration,
-            xpEarned = entryXp,
+            xpEarned = displayXp,
             onDismiss = {
                 showCelebration = false
                 navController.popBackStack()

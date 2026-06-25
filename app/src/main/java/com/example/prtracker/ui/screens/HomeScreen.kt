@@ -94,6 +94,7 @@ import com.example.prtracker.ui.theme.systemSecondaryColor
 import com.example.prtracker.ui.theme.Surface
 import com.example.prtracker.ui.theme.TextPrimary
 import com.example.prtracker.ui.theme.TextSecondary
+import com.example.prtracker.data.PetCatalog
 import com.example.prtracker.data.XpEngine
 import com.example.prtracker.viewmodel.PRViewModel
 import kotlin.math.min
@@ -125,6 +126,9 @@ fun HomeScreen(
     val currentLevel by viewModel.currentLevel.collectAsState()
     val xpInLevel by viewModel.xpInCurrentLevel.collectAsState()
     val xpToNext by viewModel.xpNeededForLevelUp.collectAsState()
+    val equippedPetIds by viewModel.equippedPetIds.collectAsState()
+    val petInventory by viewModel.petInventory.collectAsState()
+    val petMult = viewModel.petXpMultiplier()
 
     val densityObj = LocalDensity.current
     val text9spPx = with(densityObj) { 9.sp.toPx() }
@@ -942,6 +946,43 @@ fun HomeScreen(
             }
 
             Spacer(modifier = Modifier.height(12.dp))
+
+            if (equippedPetIds.isNotEmpty()) {
+                GlowingCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    borderBrush = navBrush
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        equippedPetIds.forEach { petId ->
+                            val pet = petInventory.find { it.id == petId }
+                            if (pet != null) {
+                                val species = PetCatalog.allSpecies.find { it.id == pet.speciesId }
+                                Text(
+                                    text = species?.emoji ?: "?",
+                                    fontSize = 20.sp,
+                                    modifier = Modifier.padding(horizontal = 4.dp)
+                                )
+                            }
+                        }
+                        if (petMult > 1.0f) {
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "+${((petMult - 1.0f) * 100).toInt()}% XP",
+                                color = Color(0xFF00FF85),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
             // --- LEVEL PROGRESS CARD ---
             LevelProgressCard(

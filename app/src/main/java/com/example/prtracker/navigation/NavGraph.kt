@@ -33,6 +33,10 @@ import com.example.prtracker.ui.screens.WorkoutPresetDetailScreen
 import com.example.prtracker.ui.screens.WorkoutPresetsScreen
 import com.example.prtracker.ui.screens.WorkoutSessionScreen
 import com.example.prtracker.ui.screens.PresetAnalysisScreen
+import com.example.prtracker.ui.screens.RestGameScreen
+import com.example.prtracker.ui.screens.DiceRollScreen
+import com.example.prtracker.ui.screens.PetUpgradesScreen
+import com.example.prtracker.ui.screens.PetInventoryScreen
 import com.example.prtracker.viewmodel.PRViewModel
 
 object Routes {
@@ -62,6 +66,10 @@ object Routes {
     const val WORKOUT_SESSION = "workout_session/{presetId}"
     const val EXERCISE_HISTORY = "exercise_history"
     const val WORKOUT_HISTORY = "workout_history"
+    const val REST_GAME = "rest_game"
+    const val DICE_ROLL = "dice_roll"
+    const val PET_UPGRADES = "pet_upgrades"
+    const val PET_INVENTORY = "pet_inventory"
 
     fun logEntry(exerciseId: String) = "log_entry/$exerciseId"
     fun detail(exerciseId: String) = "detail/$exerciseId"
@@ -276,6 +284,30 @@ fun PrTrackerNavGraph(
         }
         composable(Routes.WORKOUT_HISTORY) {
             WorkoutHistoryScreen(
+                navController = navController,
+                viewModel = viewModel
+            )
+        }
+        composable(Routes.REST_GAME) {
+            RestGameScreen(
+                navController = navController,
+                viewModel = viewModel
+            )
+        }
+        composable(Routes.DICE_ROLL) {
+            DiceRollScreen(
+                navController = navController,
+                viewModel = viewModel
+            )
+        }
+        composable(Routes.PET_UPGRADES) {
+            PetUpgradesScreen(
+                navController = navController,
+                viewModel = viewModel
+            )
+        }
+        composable(Routes.PET_INVENTORY) {
+            PetInventoryScreen(
                 navController = navController,
                 viewModel = viewModel
             )
