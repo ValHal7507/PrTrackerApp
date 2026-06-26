@@ -56,11 +56,12 @@ private fun formatCoins(value: Long): String {
     fun f(v: Long, u: Long, s: String) =
         if (v % u == 0L) "${v / u}$s" else String.format("%.3f$s", v / u.toDouble())
     return when {
-        value >= 1_000_000_000_000L -> f(value, 1_000_000_000_000L, "T")
-        value >= 1_000_000_000L     -> f(value, 1_000_000_000L, "B")
-        value >= 1_000_000L         -> f(value, 1_000_000L, "M")
-        value >= 1_000L             -> f(value, 1_000L, "K")
-        else                        -> value.toString()
+        value >= 1_000_000_000_000_000L -> f(value, 1_000_000_000_000_000L, "Qd")
+        value >= 1_000_000_000_000L     -> f(value, 1_000_000_000_000L, "T")
+        value >= 1_000_000_000L         -> f(value, 1_000_000_000L, "B")
+        value >= 1_000_000L             -> f(value, 1_000_000L, "M")
+        value >= 1_000L                 -> f(value, 1_000L, "K")
+        else                            -> value.toString()
     }
 }
 

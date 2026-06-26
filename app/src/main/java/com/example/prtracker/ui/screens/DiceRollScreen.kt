@@ -48,8 +48,10 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarOutline
 import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -102,11 +104,12 @@ private fun formatCoins(value: Long): String {
     fun f(v: Long, u: Long, s: String) =
         if (v % u == 0L) "${v / u}$s" else String.format("%.3f$s", v / u.toDouble())
     return when {
-        value >= 1_000_000_000_000L -> f(value, 1_000_000_000_000L, "T")
-        value >= 1_000_000_000L     -> f(value, 1_000_000_000L, "B")
-        value >= 1_000_000L         -> f(value, 1_000_000L, "M")
-        value >= 1_000L             -> f(value, 1_000L, "K")
-        else                        -> value.toString()
+        value >= 1_000_000_000_000_000L -> f(value, 1_000_000_000_000_000L, "Qd")
+        value >= 1_000_000_000_000L     -> f(value, 1_000_000_000_000L, "T")
+        value >= 1_000_000_000L         -> f(value, 1_000_000_000L, "B")
+        value >= 1_000_000L             -> f(value, 1_000_000L, "M")
+        value >= 1_000L                 -> f(value, 1_000L, "K")
+        else                            -> value.toString()
     }
 }
 
@@ -147,6 +150,7 @@ fun DiceRollScreen(
     var rollState by remember { mutableStateOf(DiceRollState.IDLE) }
     var lastRolledPet by remember { mutableStateOf<Pet?>(null) }
     var lastRollChances by remember { mutableStateOf<Map<PetRarity, Double>>(emptyMap()) }
+    var lastRollDisplayOneInX by remember { mutableStateOf<Int?>(null) }
     var selectedPetId by remember { mutableStateOf<String?>(null) }
     var multiRollResults by remember { mutableStateOf<List<com.example.prtracker.data.RollResult>>(emptyList()) }
     var selectedResultIndex by remember { mutableStateOf(0) }
@@ -169,6 +173,9 @@ fun DiceRollScreen(
         animationSpec = tween(durationMillis = 1500, easing = FastOutSlowInEasing),
         label = "diceRotY"
     )
+
+    var showRemoveDiceDialog by remember { mutableStateOf<ActiveDiceEffect?>(null) }
+    var showRemoveDiceConfirm by remember { mutableStateOf<ActiveDiceEffect?>(null) }
 
     val rarityColor = lastRolledPet?.let {
         Color(PetRarity.fromName(it.rarity).colorHex)
@@ -464,6 +471,7 @@ fun DiceRollScreen(
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(dc.copy(alpha = 0.2f))
                                     .border(1.dp, dc.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                    .clickable { showRemoveDiceDialog = effect }
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
                                 Text(
@@ -538,6 +546,7 @@ fun DiceRollScreen(
                                         rarityColor = rarityColor,
                                         accent = accent,
                                         rollChances = lastRollChances,
+                                        displayOneInX = lastRollDisplayOneInX,
                                         onDismiss = {
                                             rollState = DiceRollState.IDLE
                                             multiRollResults = emptyList()
@@ -586,6 +595,7 @@ fun DiceRollScreen(
                 multiRollResults = results
                 lastRolledPet = results.last().pet
                 lastRollChances = results.last().effectiveChances
+                lastRollDisplayOneInX = results.last().displayOneInX
                 rollState = DiceRollState.REVEAL
             }
         }
@@ -607,6 +617,7 @@ fun DiceRollScreen(
                         multiRollResults = results
                         lastRolledPet = results.last().pet
                         lastRollChances = results.last().effectiveChances
+                        lastRollDisplayOneInX = results.last().displayOneInX
                     }
                     DiceRollState.PET_DETAIL -> {
                         viewModel.rollDice()
@@ -618,6 +629,82 @@ fun DiceRollScreen(
         }
 
     } // end root Box
+
+    // ── Remove dice from queue: Step 1 ──────────────────────────────────────
+    showRemoveDiceDialog?.let { effect ->
+        val dtype = SpecialDiceType.fromId(effect.diceTypeId) ?: return@let
+        val dc = dtype.toColor()
+        AlertDialog(
+            onDismissRequest = { showRemoveDiceDialog = null },
+            confirmButton = {
+                TextButton(onClick = {
+                    showRemoveDiceConfirm = effect
+                    showRemoveDiceDialog = null
+                }) {
+                    Text("REMOVE", color = dc)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRemoveDiceDialog = null }) {
+                    Text("CANCEL")
+                }
+            },
+            title = {
+                Text(
+                    text = "${dtype.emoji} ${dtype.displayName}",
+                    color = dc,
+                    fontFamily = FontFamily.Monospace
+                )
+            },
+            text = {
+                Text(
+                    text = "Remove from queue? (${effect.rollsRemaining} rolls left)",
+                    fontFamily = FontFamily.Monospace
+                )
+            },
+            containerColor = Color(0xFF0D1526),
+            titleContentColor = dc,
+            textContentColor = Color(0xFFE8F4FD)
+        )
+    }
+
+    // ── Remove dice from queue: Step 2 (confirm) ────────────────────────────
+    showRemoveDiceConfirm?.let { effect ->
+        val dtype = SpecialDiceType.fromId(effect.diceTypeId) ?: return@let
+        val dc = dtype.toColor()
+        AlertDialog(
+            onDismissRequest = { showRemoveDiceConfirm = null },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.removeActiveDiceEffect(effect.diceTypeId)
+                    showRemoveDiceConfirm = null
+                }) {
+                    Text("YES, REMOVE", color = Color(0xFFFF003C))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRemoveDiceConfirm = null }) {
+                    Text("CANCEL")
+                }
+            },
+            title = {
+                Text(
+                    text = "ARE YOU SURE?",
+                    color = Color(0xFFFF003C),
+                    fontFamily = FontFamily.Monospace
+                )
+            },
+            text = {
+                Text(
+                    text = "${effect.rollsRemaining} rolls of ${dtype.displayName} will be discarded permanently.",
+                    fontFamily = FontFamily.Monospace
+                )
+            },
+            containerColor = Color(0xFF0D1526),
+            titleContentColor = Color(0xFFFF003C),
+            textContentColor = Color(0xFFE8F4FD)
+        )
+    }
 }
 
 // ── Sub-composables ───────────────────────────────────────────────────────────
@@ -770,13 +857,14 @@ private fun MultiRevealView(
                     val tier = PetTier.fromName(pet.tier)
                     val tierColor = Color(tier.colorHex)
                     val isSuper = rarity == PetRarity.SUPER
+                    val isPremium = isSuper || rarity == PetRarity.EXCLUSIVE
 
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(if (isSuper) 100.dp else 80.dp)
+                                .size(if (isPremium) 100.dp else 80.dp)
                                 .shadow(6.dp, RoundedCornerShape(12.dp))
                                 .background(rarityColor.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
                                 .border(1.5.dp, rarityColor, RoundedCornerShape(12.dp)),
@@ -824,13 +912,18 @@ private fun RevealView(
     rarityColor: Color,
     accent: Color,
     rollChances: Map<PetRarity, Double>,
+    displayOneInX: Int? = null,
     onDismiss: () -> Unit
 ) {
     val isSuper = PetRarity.fromName(pet.rarity) == PetRarity.SUPER
+    val isExclusive = PetRarity.fromName(pet.rarity) == PetRarity.EXCLUSIVE
+    val isPremium = isSuper || isExclusive
     val superColor = Color(PetRarity.SUPER.colorHex)
+    val exclusiveColor = Color(PetRarity.EXCLUSIVE.colorHex)
+    val premiumColor = if (isExclusive) exclusiveColor else superColor
     val infiniteTransition = rememberInfiniteTransition(label = "revealSuper")
 
-    val revealBoxModifier = if (isSuper) {
+    val revealBoxModifier = if (isPremium) {
         val pulseAlpha by infiniteTransition.animateFloat(
             initialValue = 0.10f,
             targetValue = 0.30f,
@@ -852,15 +945,15 @@ private fun RevealView(
         Modifier
             .size(120.dp)
             .shadow(24.dp, RoundedCornerShape(24.dp))
-            .background(superColor.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
-            .border(2.dp, superColor, RoundedCornerShape(24.dp))
+            .background(premiumColor.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
+            .border(2.dp, premiumColor, RoundedCornerShape(24.dp))
             .drawBehind {
                 drawCircle(
-                    color = superColor.copy(alpha = pulseAlpha),
+                    color = premiumColor.copy(alpha = pulseAlpha),
                     radius = size.minDimension * 0.65f
                 )
                 drawCircle(
-                    color = superColor.copy(alpha = pulseAlpha * 0.5f),
+                    color = premiumColor.copy(alpha = pulseAlpha * 0.5f),
                     radius = size.minDimension * 0.8f
                 )
             }
@@ -873,7 +966,7 @@ private fun RevealView(
             .border(2.dp, rarityColor, RoundedCornerShape(24.dp))
     }
 
-    val displayColor = if (isSuper) superColor else rarityColor
+    val displayColor = if (isPremium) premiumColor else rarityColor
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -889,7 +982,7 @@ private fun RevealView(
             contentAlignment = Alignment.Center
         ) {
             val species = PetCatalog.allSpecies.find { it.id == pet.speciesId }
-            Text(text = species?.emoji ?: "?", fontSize = if (isSuper) 56.sp else 48.sp)
+            Text(text = species?.emoji ?: "?", fontSize = if (isPremium) 56.sp else 48.sp)
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -936,7 +1029,7 @@ private fun RevealView(
             }
         }
 
-        if (!isSuper) {
+        if (!isSuper && !isExclusive) {
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
@@ -954,7 +1047,7 @@ private fun RevealView(
         if (rollChances.isNotEmpty()) {
             val totalWeight = rollChances.values.sum()
             val rarityChance = rollChances[PetRarity.fromName(pet.rarity)] ?: 0.0
-            val oneInX = if (rarityChance > 0) {
+            val oneInX = displayOneInX ?: if (rarityChance > 0) {
                 (totalWeight / rarityChance).toInt().coerceAtLeast(2)
             } else 2
             Text(
@@ -970,6 +1063,16 @@ private fun RevealView(
             Text(
                 text = "\u2B50 LEGENDARY DISCOVERY \u2B50",
                 color = superColor,
+                style = MaterialTheme.typography.titleMedium,
+                fontFamily = FontFamily.Monospace
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
+        if (isExclusive) {
+            Text(
+                text = "\uD83D\uDC09 BEYOND DIVINE \uD83D\uDC09",
+                color = exclusiveColor,
                 style = MaterialTheme.typography.titleMedium,
                 fontFamily = FontFamily.Monospace
             )

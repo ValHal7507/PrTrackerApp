@@ -417,6 +417,28 @@ enum class PetUpgrade(
         if (fixedCosts != null) return if (currentLevel < fixedCosts.size) fixedCosts[currentLevel] else Long.MAX_VALUE
         return (baseCost * 1.25.pow(currentLevel)).toLong().coerceAtMost(100_000_000L)
     }
+    fun nextLevelCost(currentLevel: Int): Long = costForLevel(currentLevel)
+    fun maxLevel(): Int? = fixedCosts?.size
+    fun totalCostForLevels(fromLevel: Int, count: Int): Long {
+        var total = 0L
+        for (i in 0 until count) total += costForLevel(fromLevel + i)
+        return total
+    }
+    fun maxPurchaseableLevels(fromLevel: Int, coins: Long): Int {
+        val maxLv = maxLevel()
+        var accumulated = 0L
+        var count = 0
+        while (count < 50) {
+            if (maxLv != null && fromLevel + count >= maxLv) break
+            val nextCost = costForLevel(fromLevel + count)
+            if (nextCost > 100_000_000L) break
+            if (accumulated + nextCost > coins) break
+            accumulated += nextCost
+            count++
+        }
+        return count
+    }
+}
     // ROLL_SPEED override:
     override fun costForLevel(currentLevel: Int): Long =
         (baseCost * 1.8.pow(currentLevel)).toLong().coerceAtMost(100_000_000L)
@@ -1411,7 +1433,9 @@ val TierSystemOverride = Color(0xFFB026FF)  // Neon purple (same as SuccessPurpl
 - **Coin balance:** Top-right showing current coins with coin emoji.
 - **Upgrade cards:** `LazyColumn` of `UpgradeCard` composables, one per `PetUpgrade` entry:
   - Upgrade name in accent color, current level / max level in secondary text
-  - Purchase button (gold coin styling) showing cost, disabled when can't afford
+  - Quantity selector row: [-] button, numeric value field (tap-to-type), [+] button — persisted after each purchase
+  - Total cost preview line showing cost for the selected quantity
+  - "BUY N" button (gold coin styling) showing total cost, disabled when can't afford or quantity is 0
   - "MAX" badge when at max level (neon green)
   - Description text in secondary color
   - 10-segment progress bar showing purchased levels in accent color
@@ -1566,6 +1590,7 @@ Extends `AndroidViewModel(application)` for app context access.
 | `rollDice(): Pet`                                    | Weighted random rarity selection with pity system (soft pity at 150 rolls for Epic+, hard pity at 401 for Legendary, 2001 for Mythical). Luck upgrade adds +20%/level to ALL non-COMMON rarity chances. Lucky Roll: every 5th roll when lucky_roll > 0, boosted rarity chances scaling with level (+0.25x per level). Active dice effects with `baseChances` (REFINING/ASCENDANT/LEGENDARY) replace base drop chances with custom weighted distributions; soft pity is skipped for those dice. Hard pity still overrides. Old-style filter (BANISHING/MYTHIC) uses `minRarity`/`maxRarity` zeroing as before. SUPER pre-check: flat `Math.random() < 0.00001` (1/100k independent), or guaranteed if SUPER DICE is active (`isSuperDiceActive`). SUPER DICE forces the check to always trigger. SUPER pet coin award: **flat 50B** (no multipliers). Natural SUPER and SUPER DICE both give 50B flat. Finds existing pet by `speciesId + tier` for star upgrade; if already 5★ NORMAL, creates a new copy. Awards coins = `pet.coinValue()` × coin_multiplier upgrade × pet XP multiplier from equipped pets on every roll (coin value includes stars multiplier). Returns `RollResult(pet, effectiveChances, isLuckyRoll)` where `effectiveChances` are the actual boosted chances used for the roll. Saves to JSON. |
 | `toggleAutoRoll()`                                   | Toggles `_autoRoll` StateFlow (persists across navigation). Does NOT save to JSON — transient toggle.                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `purchaseUpgrade(upgrade)`                           | Buys the next level of a PetUpgrade if affordable. Deducts coins, increments level in `_petUpgrades`, saves to JSON.                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `purchaseUpgradeMultiple(upgrade, count): Int`       | Buys up to `count` levels of a PetUpgrade in one call. Loops deducting coins and incrementing level for each, stops early if coins run out or max level reached. Returns the number of levels actually purchased. Saves to JSON once after all purchases. Uses `PetUpgrade.totalCostForLevels()` and `maxPurchaseableLevels()` for cost calculation. |
 | `fusePet(petId: String)`                             | Finds pet by ID, requires 5★ and not max tier. Removes old pet, creates new pet with `tier = nextTier`, `stars = 1`, new UUID. Removes old pet ID from equipped list. Saves to JSON.                                                                                                                                                                                                                                                                                   |
 | `sellPet(petId: String)`                             | Removes pet by ID, adds `pet.coinValue()` to coins. Removes pet ID from equipped list. Saves to JSON.                                                                                                                                                                                                                                                                                                                                                              |
 | `equipPet(petId: String)`                            | Adds pet ID to `_equippedPetIds` (up to max slots). Saves to pets.json.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -1932,6 +1957,8 @@ Deleted in v1.1 (File-Based Import/Export feature). Replaced by `SyncExportScree
 39. **MiniGameSettings** — Added `MiniGameSettings` data class (autoSellRarities: Set<String>, selectedRollCount: Int) to PetStorageData. Added `MiniGameSettingsScreen` as full-screen route with gear icon access from DiceRollScreen title bar. Auto-Sell section: per-rarity checkboxes (SUPER excluded), description "Sold on roll — still shown in showcase". Roll Count section: 1x/2x/3x/5x pill buttons locked by MULTI_ROLL upgrade level. Settings persist to pets.json.
 
 40. **Multi-Roll Restore** — Restored multi-roll support after DiceRollScreen was previously overwritten. Added `multiRollResults: List<RollResult>` and `selectedResultIndex` state. Roll trigger uses `rollDiceMultiple(getEffectiveRollCount())`. MultiRevealView shows all pets in grid (emoji box + name in rarity color + single tier pill per cell, not tappable). "TAP TO DISMISS" removed from RevealView. "TAP A PET TO VIEW" removed from MultiRevealView. Tap-to-detail disabled on multi-reveal cards.
+
+41. **Multi-Level Upgrade Purchase** — `PetUpgradesScreen` upgraded with quantity selector: [-] / [+] buttons, tap-to-type numeric field, and total cost preview. Users can buy multiple upgrade levels at once. `purchaseUpgradeMultiple(upgrade, count)` added to `PRViewModel`, looping deducting coins per level and returning actual count purchased. `PetUpgrade` extended with `totalCostForLevels(fromLevel, count)` and `maxPurchaseableLevels(fromLevel, coins)` helper functions. Quantity persists after each purchase and is capped by both level cap and coin balance. "BUY N" button shows total cost and is disabled when quantity is 0 or coins insufficient.
 
 ---
 

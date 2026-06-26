@@ -91,11 +91,12 @@ private fun formatCoins(value: Long): String {
     fun f(v: Long, u: Long, s: String) =
         if (v % u == 0L) "${v / u}$s" else String.format("%.3f$s", v / u.toDouble())
     return when {
-        value >= 1_000_000_000_000L -> f(value, 1_000_000_000_000L, "T")
-        value >= 1_000_000_000L     -> f(value, 1_000_000_000L, "B")
-        value >= 1_000_000L         -> f(value, 1_000_000L, "M")
-        value >= 1_000L             -> f(value, 1_000L, "K")
-        else                        -> value.toString()
+        value >= 1_000_000_000_000_000L -> f(value, 1_000_000_000_000_000L, "Qd")
+        value >= 1_000_000_000_000L     -> f(value, 1_000_000_000_000L, "T")
+        value >= 1_000_000_000L         -> f(value, 1_000_000_000L, "B")
+        value >= 1_000_000L             -> f(value, 1_000_000L, "M")
+        value >= 1_000L                 -> f(value, 1_000L, "K")
+        else                            -> value.toString()
     }
 }
 
@@ -103,11 +104,12 @@ private fun formatCoin1(value: Long): String {
     fun f(v: Long, u: Long, s: String) =
         if (v % u == 0L) "${v / u}$s" else String.format("%.1f$s", v / u.toDouble())
     return when {
-        value >= 1_000_000_000_000L -> f(value, 1_000_000_000_000L, "T")
-        value >= 1_000_000_000L     -> f(value, 1_000_000_000L, "B")
-        value >= 1_000_000L         -> f(value, 1_000_000L, "M")
-        value >= 1_000L             -> f(value, 1_000L, "K")
-        else                        -> value.toString()
+        value >= 1_000_000_000_000_000L -> f(value, 1_000_000_000_000_000L, "Qd")
+        value >= 1_000_000_000_000L     -> f(value, 1_000_000_000_000L, "T")
+        value >= 1_000_000_000L         -> f(value, 1_000_000_000L, "B")
+        value >= 1_000_000L             -> f(value, 1_000_000L, "M")
+        value >= 1_000L                 -> f(value, 1_000L, "K")
+        else                            -> value.toString()
     }
 }
 
@@ -134,6 +136,9 @@ fun PetInventoryScreen(
     var showFuseAllDialog by remember { mutableStateOf(false) }
     var isSelectMode by remember { mutableStateOf(false) }
     var selectedPetIds by remember { mutableStateOf(setOf<String>()) }
+    var isPremiumFuseMode by remember { mutableStateOf(false) }
+    var selectedPremiumFuseIds by remember { mutableStateOf(setOf<String>()) }
+    var showPremiumFuseDialog by remember { mutableStateOf(false) }
 
     val filteredPets = petInventory.filter { pet ->
         if (searchQuery.isBlank()) true
@@ -159,10 +164,20 @@ fun PetInventoryScreen(
 
     val unfavoritedCount = petInventory.count { !it.isFavorited }
     val fusableCount = petInventory.count {
-        it.stars == 5 && PetTier.fromName(it.tier) != PetTier.RED_MATTER
-                && PetRarity.fromName(it.rarity) != PetRarity.SUPER
+        it.stars == 5
+            && PetTier.nextTier(PetTier.fromName(it.tier)) != null
+            && PetRarity.fromName(it.rarity) != PetRarity.SUPER
+            && PetRarity.fromName(it.rarity) != PetRarity.EXCLUSIVE
     }
     val equipAvailableCount = petInventory.count { it.id !in equippedPetIds }
+
+    val premiumFuseEligible = petInventory.filter {
+        val r = PetRarity.fromName(it.rarity)
+        (r == PetRarity.SUPER || r == PetRarity.EXCLUSIVE)
+            && PetTier.nextTier(PetTier.fromName(it.tier)) != null
+    }
+    val hasPremiumFuseGroup = premiumFuseEligible.groupBy { "${it.speciesId}_${it.tier}" }
+        .values.any { it.size >= 3 }
 
     Box(modifier = Modifier.fillMaxSize()) {
         GridBackground()
@@ -195,25 +210,58 @@ fun PetInventoryScreen(
                         )
                     }
                     Text(
-                        text = if (isSelectMode) "SELECT (${selectedPetIds.size})" else "INVENTORY (${petInventory.size})",
+                        text = when {
+                            isPremiumFuseMode -> "FUSING (${selectedPremiumFuseIds.size}/3)"
+                            isSelectMode -> "SELECT (${selectedPetIds.size})"
+                            else -> "INVENTORY (${petInventory.size})"
+                        },
                         color = accent,
                         style = MaterialTheme.typography.titleLarge,
                         fontFamily = FontFamily.Monospace
                     )
                 }
-                IconButton(
-                    onClick = {
-                        isSelectMode = !isSelectMode
-                        if (!isSelectMode) selectedPetIds = emptySet()
-                        selectedPetId = null
-                    },
-                    modifier = Modifier.size(40.dp)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = if (isSelectMode) Icons.Default.Close else Icons.Default.Delete,
-                        contentDescription = if (isSelectMode) "Cancel selection" else "Select pets to sell",
-                        tint = if (isSelectMode) Color(0xFFFF4444) else accent
-                    )
+                    if (hasPremiumFuseGroup) {
+                        IconButton(
+                            onClick = {
+                                isPremiumFuseMode = !isPremiumFuseMode
+                                if (!isPremiumFuseMode) selectedPremiumFuseIds = emptySet()
+                                if (isPremiumFuseMode) {
+                                    isSelectMode = false
+                                    selectedPetIds = emptySet()
+                                }
+                                selectedPetId = null
+                            },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Text(
+                                text = "\u26A1",
+                                fontSize = 20.sp,
+                                color = if (isPremiumFuseMode) Color(0xFFFFD700) else accent
+                            )
+                        }
+                    }
+                    IconButton(
+                        onClick = {
+                            isSelectMode = !isSelectMode
+                            if (!isSelectMode) selectedPetIds = emptySet()
+                            if (isSelectMode) {
+                                isPremiumFuseMode = false
+                                selectedPremiumFuseIds = emptySet()
+                            }
+                            selectedPetId = null
+                        },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isSelectMode) Icons.Default.Close else Icons.Default.Delete,
+                            contentDescription = if (isSelectMode) "Cancel selection" else "Select pets to sell",
+                            tint = if (isSelectMode) Color(0xFFFF4444) else accent
+                        )
+                    }
                 }
             }
 
@@ -382,7 +430,31 @@ fun PetInventoryScreen(
                             items = sortedPets,
                             key = { it.id }
                         ) { pet ->
-                            if (isSelectMode) {
+                            if (isPremiumFuseMode) {
+                                val isSelected = pet.id in selectedPremiumFuseIds
+                                val r = PetRarity.fromName(pet.rarity)
+                                val isPremiumEligible = (r == PetRarity.SUPER || r == PetRarity.EXCLUSIVE)
+                                    && PetTier.nextTier(PetTier.fromName(pet.tier)) != null
+                                PetCollectionCard(
+                                    pet = pet,
+                                    accent = accent,
+                                    isEquipped = equippedPetIds.contains(pet.id),
+                                    isSelected = isSelected,
+                                    isSelectable = isPremiumEligible,
+                                    onClick = {
+                                        if (isPremiumEligible) {
+                                            selectedPremiumFuseIds = if (isSelected) {
+                                                selectedPremiumFuseIds - pet.id
+                                            } else if (selectedPremiumFuseIds.size < 3) {
+                                                selectedPremiumFuseIds + pet.id
+                                            } else {
+                                                selectedPremiumFuseIds
+                                            }
+                                        }
+                                    },
+                                    onLongClick = { selectedPetId = pet.id }
+                                )
+                            } else if (isSelectMode) {
                                 val isSelected = pet.id in selectedPetIds
                                 val isSelectable = !pet.isFavorited
                                 PetCollectionCard(
@@ -422,10 +494,11 @@ fun PetInventoryScreen(
                     }
                     val mult = viewModel.coinMultiplier()
                     val selectedPets = selectedPetIds.mapNotNull { id -> petInventory.find { it.id == id } }
-                    val (superSelected, normalSelected) = selectedPets.partition {
-                        com.example.prtracker.data.PetRarity.fromName(it.rarity) == com.example.prtracker.data.PetRarity.SUPER
+                    val (premiumSelected, normalSelected) = selectedPets.partition {
+                        val r = com.example.prtracker.data.PetRarity.fromName(it.rarity)
+                        r == com.example.prtracker.data.PetRarity.SUPER || r == com.example.prtracker.data.PetRarity.EXCLUSIVE
                     }
-                    val totalValue = superSelected.sumOf { it.coinValue() } + (normalSelected.sumOf { it.coinValue().toLong() } * mult).toLong()
+                    val totalValue = premiumSelected.sumOf { it.coinValue() } + (normalSelected.sumOf { it.coinValue().toLong() } * mult).toLong()
                     var showMultiSellDialog by remember { mutableStateOf(false) }
                     Row(
                         modifier = Modifier
@@ -511,8 +584,68 @@ fun PetInventoryScreen(
                     }
                 }
 
+                // ── Premium fuse bottom bar ──────────────────────────────────
+                if (isPremiumFuseMode && selectedPremiumFuseIds.size == 3) {
+                    val selectedPets = selectedPremiumFuseIds.mapNotNull { id -> petInventory.find { it.id == id } }
+                    val allMatch = selectedPets.size == 3
+                        && selectedPets.map { it.speciesId }.distinct().size == 1
+                        && selectedPets.map { it.tier }.distinct().size == 1
+                    val outputTier = if (allMatch) PetTier.nextTier(PetTier.fromName(selectedPets.first().tier)) else null
+                    val species = PetCatalog.allSpecies.find { it.id == selectedPets.firstOrNull()?.speciesId }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            if (allMatch && outputTier != null) {
+                                Text(
+                                    text = "${species?.emoji ?: "?"} \u2192 ${species?.emoji ?: "?"} ${outputTier.label}",
+                                    color = Color(0xFFE8F4FD),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            } else {
+                                Text(
+                                    text = "MUST BE SAME SPECIES + TIER",
+                                    color = Color(0xFFFF4444),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = {
+                                    selectedPremiumFuseIds = emptySet()
+                                    isPremiumFuseMode = false
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF6B8CAE).copy(alpha = 0.1f)
+                                )
+                            ) {
+                                Text("CANCEL", color = Color(0xFF6B8CAE), fontFamily = FontFamily.Monospace)
+                            }
+                            if (allMatch && outputTier != null) {
+                                Button(
+                                    onClick = { showPremiumFuseDialog = true },
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFFFFD700).copy(alpha = 0.15f)
+                                    )
+                                ) {
+                                    Text("FUSE \u26A1", color = Color(0xFFFFD700), fontFamily = FontFamily.Monospace)
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // ── Bulk action buttons ──────────────────────────────────────
-                if (!isSelectMode && (fusableCount > 0 || unfavoritedCount > 0 || equipAvailableCount > 0)) {
+                if (!isSelectMode && !isPremiumFuseMode && (fusableCount > 0 || unfavoritedCount > 0 || equipAvailableCount > 0)) {
                     if (equipAvailableCount > 0) {
                         Button(
                             onClick = { viewModel.equipBest() },
@@ -589,10 +722,11 @@ fun PetInventoryScreen(
     // ── Sell-all confirmation dialog ─────────────────────────────────────────
     if (showSellAllDialog) {
         val unfavorited = petInventory.filter { !it.isFavorited }
-        val (superSell, normalSell) = unfavorited.partition {
-            com.example.prtracker.data.PetRarity.fromName(it.rarity) == com.example.prtracker.data.PetRarity.SUPER
+        val (premiumSell, normalSell) = unfavorited.partition {
+            val r = com.example.prtracker.data.PetRarity.fromName(it.rarity)
+            r == com.example.prtracker.data.PetRarity.SUPER || r == com.example.prtracker.data.PetRarity.EXCLUSIVE
         }
-        val totalValue = superSell.sumOf { it.coinValue() } + (normalSell.sumOf { it.coinValue().toLong() } * viewModel.coinMultiplier()).toLong()
+        val totalValue = premiumSell.sumOf { it.coinValue() } + (normalSell.sumOf { it.coinValue().toLong() } * viewModel.coinMultiplier()).toLong()
         AlertDialog(
             onDismissRequest = { showSellAllDialog = false },
             containerColor = Color(0xFF0D1526),
@@ -639,8 +773,10 @@ fun PetInventoryScreen(
     // ── Fuse-all confirmation dialog ─────────────────────────────────────────
     if (showFuseAllDialog) {
         val fusable = petInventory.filter {
-            it.stars == 5 && PetTier.fromName(it.tier) != PetTier.RED_MATTER
-                    && PetRarity.fromName(it.rarity) != PetRarity.SUPER
+            it.stars == 5
+                && PetTier.nextTier(PetTier.fromName(it.tier)) != null
+                && PetRarity.fromName(it.rarity) != PetRarity.SUPER
+                && PetRarity.fromName(it.rarity) != PetRarity.EXCLUSIVE
         }
         AlertDialog(
             onDismissRequest = { showFuseAllDialog = false },
@@ -684,6 +820,67 @@ fun PetInventoryScreen(
             }
         )
     }
+
+    // ── Premium fuse confirmation dialog ──────────────────────────────────
+    if (showPremiumFuseDialog) {
+        val selectedPets = selectedPremiumFuseIds.mapNotNull { id -> petInventory.find { it.id == id } }
+        val outputTier = if (selectedPets.size == 3) PetTier.nextTier(PetTier.fromName(selectedPets.first().tier)) else null
+        val species = PetCatalog.allSpecies.find { it.id == selectedPets.firstOrNull()?.speciesId }
+        AlertDialog(
+            onDismissRequest = { showPremiumFuseDialog = false },
+            containerColor = Color(0xFF0D1526),
+            title = {
+                Text(
+                    text = "FUSE 3 PETS?",
+                    color = Color(0xFFFFD700),
+                    fontFamily = FontFamily.Monospace
+                )
+            },
+            text = {
+                Column {
+                    selectedPets.forEach { pet ->
+                        val s = PetCatalog.allSpecies.find { it.id == pet.speciesId }
+                        Text(
+                            text = "${s?.emoji ?: "?"} ${pet.name} ${PetTier.fromName(pet.tier).label}",
+                            color = Color(0xFF6B8CAE),
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "\u2192 ${species?.emoji ?: "?"} ${selectedPets.firstOrNull()?.name ?: ""} ${outputTier?.label ?: ""}",
+                        color = Color(0xFFFFD700),
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showPremiumFuseDialog = false
+                        viewModel.fusePremiumPets(selectedPremiumFuseIds.toList())
+                        selectedPremiumFuseIds = emptySet()
+                        isPremiumFuseMode = false
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFFFD700).copy(alpha = 0.2f)
+                    )
+                ) {
+                    Text("FUSE", color = Color(0xFFFFD700), fontFamily = FontFamily.Monospace)
+                }
+            },
+            dismissButton = {
+                Button(
+                    onClick = { showPremiumFuseDialog = false },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF6B8CAE).copy(alpha = 0.1f)
+                    )
+                ) {
+                    Text("CANCEL", color = Color(0xFF6B8CAE), fontFamily = FontFamily.Monospace)
+                }
+            }
+        )
+    }
 }
 
 // ── Shared composables (used by both PetInventoryScreen and DiceRollScreen) ──
@@ -704,12 +901,14 @@ internal fun PetDetailView(
     onDismiss: () -> Unit
 ) {
     val isSuper = PetRarity.fromName(pet.rarity) == PetRarity.SUPER
+    val isExclusive = PetRarity.fromName(pet.rarity) == PetRarity.EXCLUSIVE
+    val isPremium = isSuper || isExclusive
     val tier = remember(pet.tier) { PetTier.fromName(pet.tier) }
     val tierColor = Color(tier.colorHex)
     val rarityColor = Color(PetRarity.fromName(pet.rarity).colorHex)
     val species = PetCatalog.allSpecies.find { it.id == pet.speciesId }
     val nextTier = remember(tier) { PetTier.nextTier(tier) }
-    val canFuse = !isSuper && pet.stars >= 5 && nextTier != null
+    val canFuse = pet.stars >= 5 && nextTier != null && !isSuper && !isExclusive
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -772,7 +971,7 @@ internal fun PetDetailView(
             }
         }
 
-        if (!isSuper) {
+        if (!isSuper && !isExclusive) {
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
@@ -786,7 +985,7 @@ internal fun PetDetailView(
             )
         }
 
-        Spacer(modifier = Modifier.height(if (isSuper) 12.dp else 20.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         val xpMult = pet.xpMultiplier(inventory)
         if (xpMult > 1.0f) {
@@ -838,7 +1037,7 @@ internal fun PetDetailView(
                 )
             ) {
                 Text(
-                    text = "FUSE \u2192 ${nextTier!!.label}",
+                    text = "FUSE \u2192 ${nextTier?.label ?: "MAX"}",
                     color = tierColor,
                     style = MaterialTheme.typography.titleMedium,
                     fontFamily = FontFamily.Monospace
@@ -888,7 +1087,7 @@ internal fun PetDetailView(
                     containerColor = Color(0xFFFF4444).copy(alpha = 0.15f)
                 )
             ) {
-                val sellCoin = if (com.example.prtracker.data.PetRarity.fromName(pet.rarity) == com.example.prtracker.data.PetRarity.SUPER)
+                val sellCoin = if (com.example.prtracker.data.PetRarity.fromName(pet.rarity) == com.example.prtracker.data.PetRarity.SUPER || com.example.prtracker.data.PetRarity.fromName(pet.rarity) == com.example.prtracker.data.PetRarity.EXCLUSIVE)
                     pet.coinValue()
                 else
                     (pet.coinValue().toLong() * coinMultiplier).toLong()
@@ -914,7 +1113,7 @@ internal fun PetDetailView(
                     text = {
                         Text(
                             text = "You will receive ${formatCoins(
-                                if (com.example.prtracker.data.PetRarity.fromName(pet.rarity) == com.example.prtracker.data.PetRarity.SUPER)
+                                if (com.example.prtracker.data.PetRarity.fromName(pet.rarity) == com.example.prtracker.data.PetRarity.SUPER || com.example.prtracker.data.PetRarity.fromName(pet.rarity) == com.example.prtracker.data.PetRarity.EXCLUSIVE)
                                     pet.coinValue()
                                 else
                                     (pet.coinValue().toLong() * coinMultiplier).toLong()
@@ -986,10 +1185,14 @@ internal fun PetCollectionCard(
     }
 
     val isSuper = rarity == PetRarity.SUPER
+    val isExclusive = rarity == PetRarity.EXCLUSIVE
+    val isPremium = isSuper || isExclusive
     val superColor = Color(PetRarity.SUPER.colorHex)
+    val exclusiveColor = Color(PetRarity.EXCLUSIVE.colorHex)
+    val premiumColor = if (isExclusive) exclusiveColor else superColor
 
     val bgTint = when {
-        isSuper             -> superColor.copy(alpha = 0.12f)
+        isPremium             -> premiumColor.copy(alpha = 0.12f)
         tier == PetTier.NORMAL      -> CardBackground
         tier == PetTier.SILVER      -> Color(0xFFC0C0C0).copy(alpha = 0.08f)
         tier == PetTier.GOLDEN      -> Color(0xFFFFD700).copy(alpha = 0.10f)
@@ -1000,7 +1203,7 @@ internal fun PetCollectionCard(
     }
 
     val contentModifier = when {
-        isSuper -> {
+        isPremium -> {
             val pulseAlpha by infiniteTransition.animateFloat(
                 initialValue = 0.10f,
                 targetValue = 0.25f,
@@ -1022,11 +1225,11 @@ internal fun PetCollectionCard(
             Modifier
                 .drawBehind {
                     drawCircle(
-                        color = superColor.copy(alpha = pulseAlpha),
+                        color = premiumColor.copy(alpha = pulseAlpha),
                         radius = size.minDimension * 0.65f
                     )
                     drawCircle(
-                        color = superColor.copy(alpha = pulseAlpha * 0.5f),
+                        color = premiumColor.copy(alpha = pulseAlpha * 0.5f),
                         radius = size.minDimension * 0.8f
                     )
                 }
@@ -1137,7 +1340,7 @@ internal fun PetCollectionCard(
             verticalArrangement = Arrangement.Center
         ) {
             Text(text = species?.emoji ?: "?", fontSize = 28.sp)
-            if (!isSuper) {
+            if (!isSuper && !isExclusive) {
                 Text(
                     text = buildString {
                         repeat(pet.stars) { append("\u2605") }

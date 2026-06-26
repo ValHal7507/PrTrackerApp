@@ -277,21 +277,25 @@ private fun PetDetailOverlay(
     val rarityColor = Color(species.rarity.colorHex)
     val tierColor = Color(tier.colorHex)
     val isSuper = species.rarity == PetRarity.SUPER
+    val isExclusive = species.rarity == PetRarity.EXCLUSIVE
+    val isPremium = isSuper || isExclusive
 
-    // Compute best non-SUPER XP multiplier from inventory
+    // Compute best non-SUPER/EXCLUSIVE XP multiplier from inventory
     val bestNonSuperMult = remember(petInventory) {
         petInventory
-            .filter { PetRarity.fromName(it.rarity) != PetRarity.SUPER }
+            .filter { PetRarity.fromName(it.rarity) != PetRarity.SUPER && PetRarity.fromName(it.rarity) != PetRarity.EXCLUSIVE }
             .maxOfOrNull { it.xpMultiplier(petInventory) } ?: 1.0f
     }
 
-    // Compute XP multiplier for selected star (non-SUPER) or formula result (SUPER)
-    val xpMultiplier = remember(selectedStar, bestNonSuperMult, isSuper) {
+    // Compute XP multiplier for selected star (non-premium) or formula result (premium)
+    val xpMultiplier = remember(selectedStar, bestNonSuperMult, isPremium) {
         if (isSuper) {
             1.1f * tier.xpMult * bestNonSuperMult
+        } else if (isExclusive) {
+            2.0f * tier.xpMult * bestNonSuperMult
         } else {
             val starMult = 1.0f + (selectedStar - 1) * 0.05f
-            species.rarity.baseXpMult * tier.xpMult * starMult
+            (species.xpMult ?: species.rarity.baseXpMult) * tier.xpMult * starMult
         }
     }
 
@@ -416,53 +420,29 @@ private fun PetDetailOverlay(
                         style = MaterialTheme.typography.titleMedium,
                         fontFamily = FontFamily.Monospace
                     )
-                } else {
-                    // Non-SUPER: show star selector
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        for (star in 1..5) {
-                            val isFilled = star <= selectedStar
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(
-                                        if (isFilled) goldColor.copy(alpha = 0.2f) else Color.Transparent
-                                    )
-                                    .border(
-                                        1.dp,
-                                        if (isFilled) goldColor else dimColor,
-                                        RoundedCornerShape(8.dp)
-                                    )
-                                    .clickable { selectedStar = star },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = if (isFilled) "\u2605" else "\u2606",
-                                    color = if (isFilled) goldColor else dimColor,
-                                    fontSize = 20.sp
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Text(
-                        text = "XP MULTIPLIER: ${String.format("%.2f", xpMultiplier)}\u00D7",
-                        color = accent,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontFamily = FontFamily.Monospace
-                    )
-
-                    Text(
-                        text = "at ${selectedStar}\u2605",
-                        color = grayColor,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
+        } else if (isExclusive) {
+            // EXCLUSIVE: show formula breakdown (no stars)
+            Text(
+                text = "XP FORMULA",
+                color = grayColor,
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+            Text(
+                text = "2.0 \u00D7 ${String.format("%.2f", tier.xpMult)}(${tier.label}) \u00D7 ${String.format("%.2f", bestNonSuperMult)}(best)",
+                color = grayColor,
+                style = MaterialTheme.typography.bodyMedium,
+                fontFamily = FontFamily.Monospace
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "XP MULTIPLIER: ${String.format("%.2f", xpMultiplier)}\u00D7",
+                color = accent,
+                style = MaterialTheme.typography.titleMedium,
+                fontFamily = FontFamily.Monospace
+            )
+        }
             }
         }
     }

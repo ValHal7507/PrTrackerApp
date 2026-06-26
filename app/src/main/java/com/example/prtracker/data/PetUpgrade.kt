@@ -71,6 +71,28 @@ enum class PetUpgrade(
 
     open fun maxLevel(): Int? = fixedCosts?.size
 
+    fun totalCostForLevels(fromLevel: Int, count: Int): Long {
+        var total = 0L
+        for (i in 0 until count) {
+            total += costForLevel(fromLevel + i)
+        }
+        return total
+    }
+
+    fun maxPurchaseableLevels(fromLevel: Int, coins: Long): Int {
+        val maxLvl = maxLevel()
+        val maxPossible = if (maxLvl != null) (maxLvl - fromLevel).coerceAtLeast(0) else 50
+        var total = 0L
+        var count = 0
+        for (i in 0 until maxPossible) {
+            val cost = costForLevel(fromLevel + i)
+            if (total + cost > coins) break
+            total += cost
+            count++
+        }
+        return count
+    }
+
     companion object {
         fun fromId(id: String): PetUpgrade? = entries.find { it.id == id }
         fun multiRollCount(level: Int): Int = when (level) {

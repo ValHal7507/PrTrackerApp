@@ -113,6 +113,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
     private val _rollsSinceEpicOrAbove = MutableStateFlow(0)
     private val _rollsSinceLegendary = MutableStateFlow(0)
     private val _rollsSinceMythical = MutableStateFlow(0)
+    private val _rollsSinceDivine = MutableStateFlow(0)
     private val _lastDiceRollTimestamp = MutableStateFlow(0L)
 
     private val _coins = MutableStateFlow(0L)
@@ -239,6 +240,16 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
         return first.diceType
     }
 
+    fun removeActiveDiceEffect(typeId: String) {
+        val effects = _activeDiceEffects.value.toMutableList()
+        val index = effects.indexOfFirst { it.diceTypeId == typeId }
+        if (index >= 0) {
+            effects.removeAt(index)
+            _activeDiceEffects.value = effects
+            savePetData()
+        }
+    }
+
     fun equipPet(petId: String) {
         val maxSlots = getUpgradeLevel(com.example.prtracker.data.PetUpgrade.EQUIP_SLOTS) + 2
         val current = _equippedPetIds.value.toMutableList()
@@ -309,7 +320,8 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
 
     fun sellPet(petId: String) {
         val pet = _petInventory.value.find { it.id == petId } ?: return
-        _coins.value += if (com.example.prtracker.data.PetRarity.fromName(pet.rarity) == com.example.prtracker.data.PetRarity.SUPER)
+        val r = com.example.prtracker.data.PetRarity.fromName(pet.rarity)
+        _coins.value += if (r == com.example.prtracker.data.PetRarity.SUPER || r == com.example.prtracker.data.PetRarity.EXCLUSIVE)
             pet.coinValue()
         else
             (pet.coinValue() * coinMultiplier()).toLong()
@@ -327,12 +339,13 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
 
     fun sellAllUnfavorited(): Long {
         val unfavorited = _petInventory.value.filter { !it.isFavorited }
-        val (superPets, normalPets) = unfavorited.partition {
-            com.example.prtracker.data.PetRarity.fromName(it.rarity) == com.example.prtracker.data.PetRarity.SUPER
+        val (premiumPets, normalPets) = unfavorited.partition {
+            val r = com.example.prtracker.data.PetRarity.fromName(it.rarity)
+            r == com.example.prtracker.data.PetRarity.SUPER || r == com.example.prtracker.data.PetRarity.EXCLUSIVE
         }
-        val superValue = superPets.sumOf { it.coinValue() }
+        val premiumValue = premiumPets.sumOf { it.coinValue() }
         val normalValue = (normalPets.sumOf { it.coinValue().toLong() } * coinMultiplier()).toLong()
-        val totalCoins = superValue + normalValue
+        val totalCoins = premiumValue + normalValue
         if (totalCoins > 0) {
             val soldIds = unfavorited.map { it.id }.toSet()
             _coins.value += totalCoins
@@ -345,12 +358,13 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
 
     fun sellPets(ids: Collection<String>): Long {
         val selected = _petInventory.value.filter { it.id in ids && !it.isFavorited }
-        val (superPets, normalPets) = selected.partition {
-            com.example.prtracker.data.PetRarity.fromName(it.rarity) == com.example.prtracker.data.PetRarity.SUPER
+        val (premiumPets, normalPets) = selected.partition {
+            val r = com.example.prtracker.data.PetRarity.fromName(it.rarity)
+            r == com.example.prtracker.data.PetRarity.SUPER || r == com.example.prtracker.data.PetRarity.EXCLUSIVE
         }
-        val superValue = superPets.sumOf { it.coinValue() }
+        val premiumValue = premiumPets.sumOf { it.coinValue() }
         val normalValue = (normalPets.sumOf { it.coinValue().toLong() } * coinMultiplier()).toLong()
-        val totalCoins = superValue + normalValue
+        val totalCoins = premiumValue + normalValue
         if (totalCoins > 0) {
             val soldIds = selected.map { it.id }.toSet()
             _coins.value += totalCoins
@@ -373,6 +387,23 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
         _petUpgrades.value = _petUpgrades.value + (upgrade.id to (currentLevel + 1))
         savePetData()
         return true
+    }
+
+    fun purchaseUpgradeMultiple(upgrade: com.example.prtracker.data.PetUpgrade, count: Int): Int {
+        val startLevel = getUpgradeLevel(upgrade)
+        var totalSpent = 0L
+        var purchased = 0
+        for (i in 0 until count) {
+            val cost = upgrade.nextLevelCost(startLevel + i)
+            if (totalSpent + cost > _coins.value) break
+            totalSpent += cost
+            purchased++
+        }
+        if (purchased == 0) return 0
+        _coins.value -= totalSpent
+        _petUpgrades.value = _petUpgrades.value + (upgrade.id to (startLevel + purchased))
+        savePetData()
+        return purchased
     }
 
     private val _lastBonusXpEarned = MutableSharedFlow<Long>(replay = 0)
@@ -540,7 +571,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
                 full.workoutSession, migratedHistory, loadedXp, bootstrapped,
                 full.potionInventory, full.lastPotionEarnedTimestamp, full.miniGameHighScore,
                 full.petInventory, full.totalRolls, full.rollsSinceEpicOrAbove,
-                full.rollsSinceLegendary, full.rollsSinceMythical, full.lastDiceRollTimestamp,
+                full.rollsSinceLegendary, full.rollsSinceMythical, petData.rollsSinceDivine, full.lastDiceRollTimestamp,
                 full.coins, full.petUpgrades, full.equippedPetIds,
                 full.diceInventory, full.activeDiceEffects, petData.miniGameSettings
             )
@@ -565,6 +596,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
             _rollsSinceEpicOrAbove.value = full.rollsSinceEpicOrAbove
             _rollsSinceLegendary.value = full.rollsSinceLegendary
             _rollsSinceMythical.value = full.rollsSinceMythical
+            _rollsSinceDivine.value = petData.rollsSinceDivine
             _lastDiceRollTimestamp.value = full.lastDiceRollTimestamp
             _coins.value = full.coins
             _petUpgrades.value = full.petUpgrades
@@ -610,6 +642,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
                 _rollsSinceEpicOrAbove.value,
                 _rollsSinceLegendary.value,
                 _rollsSinceMythical.value,
+                _rollsSinceDivine.value,
                 _lastDiceRollTimestamp.value,
                 _coins.value,
                 _petUpgrades.value,
@@ -750,6 +783,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
         _rollsSinceEpicOrAbove.value = 0
         _rollsSinceLegendary.value = 0
         _rollsSinceMythical.value = 0
+        _rollsSinceDivine.value = 0
         _lastDiceRollTimestamp.value = 0L
         _coins.value = 0L
         _equippedPetIds.value = emptyList()
@@ -764,6 +798,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
         _rollsSinceEpicOrAbove.value = 0
         _rollsSinceLegendary.value = 0
         _rollsSinceMythical.value = 0
+        _rollsSinceDivine.value = 0
         _lastDiceRollTimestamp.value = 0L
         _coins.value = 0L
         _petUpgrades.value = emptyMap()
@@ -965,6 +1000,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
                 rollsSinceEpicOrAbove = _rollsSinceEpicOrAbove.value,
                 rollsSinceLegendary = _rollsSinceLegendary.value,
                 rollsSinceMythical = _rollsSinceMythical.value,
+                rollsSinceDivine = _rollsSinceDivine.value,
                 lastDiceRollTimestamp = _lastDiceRollTimestamp.value,
                 coins = _coins.value,
                 petUpgrades = _petUpgrades.value,
@@ -984,6 +1020,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
                     rollsSinceEpicOrAbove = _rollsSinceEpicOrAbove.value,
                     rollsSinceLegendary = _rollsSinceLegendary.value,
                     rollsSinceMythical = _rollsSinceMythical.value,
+                    rollsSinceDivine = _rollsSinceDivine.value,
                     lastDiceRollTimestamp = _lastDiceRollTimestamp.value,
                     coins = _coins.value,
                     petUpgrades = _petUpgrades.value,
@@ -1456,6 +1493,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
             rollsSinceEpicOrAbove = _rollsSinceEpicOrAbove.value,
             rollsSinceLegendary = _rollsSinceLegendary.value,
             rollsSinceMythical = _rollsSinceMythical.value,
+            rollsSinceDivine = _rollsSinceDivine.value,
             lastDiceRollTimestamp = _lastDiceRollTimestamp.value,
             coins = _coins.value,
             petUpgrades = _petUpgrades.value,
@@ -1616,6 +1654,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
                     _rollsSinceEpicOrAbove.value = data.rollsSinceEpicOrAbove
                     _rollsSinceLegendary.value = data.rollsSinceLegendary
                     _rollsSinceMythical.value = data.rollsSinceMythical
+                    _rollsSinceDivine.value = data.rollsSinceDivine
                     _lastDiceRollTimestamp.value = data.lastDiceRollTimestamp
                     _coins.value = data.coins
                     _petUpgrades.value = data.petUpgrades
@@ -1707,6 +1746,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
         _rollsSinceEpicOrAbove.value = data.rollsSinceEpicOrAbove
         _rollsSinceLegendary.value = data.rollsSinceLegendary
         _rollsSinceMythical.value = data.rollsSinceMythical
+        _rollsSinceDivine.value = data.rollsSinceDivine
         _lastDiceRollTimestamp.value = maxOf(_lastDiceRollTimestamp.value, data.lastDiceRollTimestamp)
         _coins.value = maxOf(_coins.value, data.coins)
         val mergedUpgrades = _petUpgrades.value.toMutableMap()
@@ -1749,6 +1789,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
         _rollsSinceEpicOrAbove.value += 1
         _rollsSinceLegendary.value += 1
         _rollsSinceMythical.value += 1
+        _rollsSinceDivine.value += 1
 
         val luckLevel = getUpgradeLevel(com.example.prtracker.data.PetUpgrade.LUCK)
         val luckMultiplier = 1.0 + luckLevel * 0.20
@@ -1762,8 +1803,81 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
         val activeDiceType = activeDice?.diceType
         val isSuperDiceActive = activeDiceType == com.example.prtracker.data.SpecialDiceType.SUPER_DICE
 
-        // SUPER check — flat 1 in 100,000 (unaffected by luck/dice/pity), OR guaranteed if SUPER DICE active
-        if (isSuperDiceActive || Math.random() < 0.00001) {
+        // SUPER DICE — 1/1000 chance of EXCLUSIVE, else guaranteed SUPER
+        if (isSuperDiceActive) {
+            if (Math.random() < (1.0 / 1000.0)) {
+                // EXCLUSIVE from SUPER DICE
+                val exSpecies = com.example.prtracker.data.PetCatalog.speciesForRarity(com.example.prtracker.data.PetRarity.EXCLUSIVE).random()
+                val exTier = if (isLuckyRoll) {
+                    when {
+                        luckyRollLevel > 200 -> com.example.prtracker.data.PetTier.RED_MATTER.name
+                        luckyRollLevel > 150 -> com.example.prtracker.data.PetTier.DARK_MATTER.name
+                        luckyRollLevel > 100 -> com.example.prtracker.data.PetTier.RAINBOW.name
+                        luckyRollLevel > 50  -> com.example.prtracker.data.PetTier.GOLDEN.name
+                        luckyRollLevel > 0   -> com.example.prtracker.data.PetTier.SILVER.name
+                        else                 -> com.example.prtracker.data.PetTier.NORMAL.name
+                    }
+                } else com.example.prtracker.data.PetTier.NORMAL.name
+                val pet = com.example.prtracker.data.Pet(speciesId = exSpecies.id, name = exSpecies.name, rarity = com.example.prtracker.data.PetRarity.EXCLUSIVE.name, stars = 1, tier = exTier, rollNumber = _totalRolls.value)
+                _petInventory.value = _petInventory.value + pet
+                incrementSpeciesTierCount(pet.speciesId, pet.tier)
+                _rollsSinceEpicOrAbove.value = 0; _rollsSinceLegendary.value = 0; _rollsSinceMythical.value = 0; _rollsSinceDivine.value = 0
+                decrementActiveDiceEffects()
+                _lastDiceRollTimestamp.value = System.currentTimeMillis()
+                savePetData()
+                return com.example.prtracker.data.RollResult(pet, emptyMap(), isLuckyRoll)
+            } else {
+                // Guaranteed SUPER from SUPER DICE
+                val speciesList = com.example.prtracker.data.PetCatalog.speciesForRarity(com.example.prtracker.data.PetRarity.SUPER)
+                val species = speciesList.random()
+                val targetTier = if (isLuckyRoll) {
+                    when {
+                        luckyRollLevel > 200 -> com.example.prtracker.data.PetTier.RED_MATTER.name
+                        luckyRollLevel > 150 -> com.example.prtracker.data.PetTier.DARK_MATTER.name
+                        luckyRollLevel > 100 -> com.example.prtracker.data.PetTier.RAINBOW.name
+                        luckyRollLevel > 50  -> com.example.prtracker.data.PetTier.GOLDEN.name
+                        luckyRollLevel > 0   -> com.example.prtracker.data.PetTier.SILVER.name
+                        else                 -> com.example.prtracker.data.PetTier.NORMAL.name
+                    }
+                } else com.example.prtracker.data.PetTier.NORMAL.name
+                val pet = com.example.prtracker.data.Pet(speciesId = species.id, name = species.name, rarity = com.example.prtracker.data.PetRarity.SUPER.name, stars = 1, tier = targetTier, rollNumber = _totalRolls.value)
+                _petInventory.value = _petInventory.value + pet
+                incrementSpeciesTierCount(pet.speciesId, pet.tier)
+                _coins.value += 50_000_000_000L
+                _rollsSinceEpicOrAbove.value = 0; _rollsSinceLegendary.value = 0; _rollsSinceMythical.value = 0; _rollsSinceDivine.value = 0
+                decrementActiveDiceEffects()
+                _lastDiceRollTimestamp.value = System.currentTimeMillis()
+                savePetData()
+                return com.example.prtracker.data.RollResult(pet, emptyMap(), isLuckyRoll)
+            }
+        }
+
+        // EXCLUSIVE check — 1 in 1,000,000 natural, or 1 in 100,000 with MYTHIC dice
+        val exclusiveChance = if (activeDiceType == com.example.prtracker.data.SpecialDiceType.MYTHIC) 1.0 / 100000.0 else 1.0 / 1000000.0
+        if (Math.random() < exclusiveChance) {
+            val exSpecies = com.example.prtracker.data.PetCatalog.speciesForRarity(com.example.prtracker.data.PetRarity.EXCLUSIVE).random()
+            val exTier = if (isLuckyRoll) {
+                when {
+                    luckyRollLevel > 200 -> com.example.prtracker.data.PetTier.RED_MATTER.name
+                    luckyRollLevel > 150 -> com.example.prtracker.data.PetTier.DARK_MATTER.name
+                    luckyRollLevel > 100 -> com.example.prtracker.data.PetTier.RAINBOW.name
+                    luckyRollLevel > 50  -> com.example.prtracker.data.PetTier.GOLDEN.name
+                    luckyRollLevel > 0   -> com.example.prtracker.data.PetTier.SILVER.name
+                    else                 -> com.example.prtracker.data.PetTier.NORMAL.name
+                }
+            } else com.example.prtracker.data.PetTier.NORMAL.name
+            val pet = com.example.prtracker.data.Pet(speciesId = exSpecies.id, name = exSpecies.name, rarity = com.example.prtracker.data.PetRarity.EXCLUSIVE.name, stars = 1, tier = exTier, rollNumber = _totalRolls.value)
+            _petInventory.value = _petInventory.value + pet
+            incrementSpeciesTierCount(pet.speciesId, pet.tier)
+            _rollsSinceEpicOrAbove.value = 0; _rollsSinceLegendary.value = 0; _rollsSinceMythical.value = 0; _rollsSinceDivine.value = 0
+            decrementActiveDiceEffects()
+            _lastDiceRollTimestamp.value = System.currentTimeMillis()
+            savePetData()
+            return com.example.prtracker.data.RollResult(pet, emptyMap(), isLuckyRoll)
+        }
+
+        // SUPER check — flat 1 in 100,000 (unaffected by luck/dice/pity)
+        if (Math.random() < 0.00001) {
             val speciesList = com.example.prtracker.data.PetCatalog.speciesForRarity(com.example.prtracker.data.PetRarity.SUPER)
             val species = speciesList.random()
             val targetTier = if (isLuckyRoll) {
@@ -1775,23 +1889,12 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
                     luckyRollLevel > 0   -> com.example.prtracker.data.PetTier.SILVER.name
                     else                 -> com.example.prtracker.data.PetTier.NORMAL.name
                 }
-            } else {
-                com.example.prtracker.data.PetTier.NORMAL.name
-            }
-            val pet = com.example.prtracker.data.Pet(
-                speciesId = species.id,
-                name = species.name,
-                rarity = com.example.prtracker.data.PetRarity.SUPER.name,
-                stars = 1,
-                tier = targetTier,
-                rollNumber = _totalRolls.value
-            )
+            } else com.example.prtracker.data.PetTier.NORMAL.name
+            val pet = com.example.prtracker.data.Pet(speciesId = species.id, name = species.name, rarity = com.example.prtracker.data.PetRarity.SUPER.name, stars = 1, tier = targetTier, rollNumber = _totalRolls.value)
             _petInventory.value = _petInventory.value + pet
             incrementSpeciesTierCount(pet.speciesId, pet.tier)
             _coins.value += 50_000_000_000L
-            _rollsSinceEpicOrAbove.value = 0
-            _rollsSinceLegendary.value = 0
-            _rollsSinceMythical.value = 0
+            _rollsSinceEpicOrAbove.value = 0; _rollsSinceLegendary.value = 0; _rollsSinceMythical.value = 0; _rollsSinceDivine.value = 0
             decrementActiveDiceEffects()
             _lastDiceRollTimestamp.value = System.currentTimeMillis()
             savePetData()
@@ -1835,6 +1938,13 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
             effectiveChances[com.example.prtracker.data.PetRarity.MYTHICAL] = 1.0
         }
 
+        // Hard pity — guaranteed divine at 5001 rolls
+        if (_rollsSinceDivine.value >= 5001) {
+            effectiveChances[com.example.prtracker.data.PetRarity.DIVINE] = 1.0
+        }
+
+        var divineOverrideOneInX: Int? = null
+
         // Apply active dice effect filter (only for dice without custom baseChances)
         if (activeDiceType != null && activeDiceType.baseChances == null) {
             for (rarity in com.example.prtracker.data.PetRarity.entries) {
@@ -1842,6 +1952,38 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
                     effectiveChances[rarity] = 0.0
                 }
             }
+            // MYTHIC dice: 1/9 chance per roll to upgrade MYTHICAL → DIVINE
+            if (activeDiceType == com.example.prtracker.data.SpecialDiceType.MYTHIC && Math.random() < (1.0 / 9.0)) {
+                for (rarity in com.example.prtracker.data.PetRarity.entries) effectiveChances[rarity] = 0.0
+                effectiveChances[com.example.prtracker.data.PetRarity.DIVINE] = 1.0
+                divineOverrideOneInX = 9
+            }
+            // BANISHING dice: 1/1000 chance of DIVINE
+            if (activeDiceType == com.example.prtracker.data.SpecialDiceType.BANISHING && Math.random() < (1.0 / 1000.0)) {
+                for (rarity in com.example.prtracker.data.PetRarity.entries) effectiveChances[rarity] = 0.0
+                effectiveChances[com.example.prtracker.data.PetRarity.DIVINE] = 1.0
+                divineOverrideOneInX = 1000
+            }
+        }
+
+        // DIVINE chances for custom-distribution dice (baseChances != null)
+        // REFINING dice: 1/100 chance of DIVINE
+        if (activeDiceType == com.example.prtracker.data.SpecialDiceType.REFINING && Math.random() < (1.0 / 100.0)) {
+            for (rarity in com.example.prtracker.data.PetRarity.entries) effectiveChances[rarity] = 0.0
+            effectiveChances[com.example.prtracker.data.PetRarity.DIVINE] = 1.0
+            divineOverrideOneInX = 100
+        }
+        // ASCENDANT dice: 1/20 chance of DIVINE
+        if (activeDiceType == com.example.prtracker.data.SpecialDiceType.ASCENDANT && Math.random() < (1.0 / 20.0)) {
+            for (rarity in com.example.prtracker.data.PetRarity.entries) effectiveChances[rarity] = 0.0
+            effectiveChances[com.example.prtracker.data.PetRarity.DIVINE] = 1.0
+            divineOverrideOneInX = 20
+        }
+        // LEGENDARY dice: 1/8 chance of DIVINE
+        if (activeDiceType == com.example.prtracker.data.SpecialDiceType.LEGENDARY && Math.random() < (1.0 / 8.0)) {
+            for (rarity in com.example.prtracker.data.PetRarity.entries) effectiveChances[rarity] = 0.0
+            effectiveChances[com.example.prtracker.data.PetRarity.DIVINE] = 1.0
+            divineOverrideOneInX = 8
         }
 
         var selectedRarity: com.example.prtracker.data.PetRarity
@@ -1923,7 +2065,8 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
 
         if (selectedRarity == com.example.prtracker.data.PetRarity.EPIC ||
             selectedRarity == com.example.prtracker.data.PetRarity.LEGENDARY ||
-            selectedRarity == com.example.prtracker.data.PetRarity.MYTHICAL) {
+            selectedRarity == com.example.prtracker.data.PetRarity.MYTHICAL ||
+            selectedRarity == com.example.prtracker.data.PetRarity.DIVINE) {
             _rollsSinceEpicOrAbove.value = 0
         }
         if (selectedRarity == com.example.prtracker.data.PetRarity.LEGENDARY) {
@@ -1931,6 +2074,9 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
         }
         if (selectedRarity == com.example.prtracker.data.PetRarity.MYTHICAL) {
             _rollsSinceMythical.value = 0
+        }
+        if (selectedRarity == com.example.prtracker.data.PetRarity.DIVINE) {
+            _rollsSinceDivine.value = 0
         }
 
         // Decrement active dice effects after the roll
@@ -1940,7 +2086,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
 
         // Auto-sell: if rarity is in autoSellRarities, sell immediately
         val autoSell = _miniGameSettings.value.autoSellRarities
-        if (selectedRarity != com.example.prtracker.data.PetRarity.SUPER && autoSell.contains(pet.rarity)) {
+        if (selectedRarity != com.example.prtracker.data.PetRarity.SUPER && selectedRarity != com.example.prtracker.data.PetRarity.EXCLUSIVE && autoSell.contains(pet.rarity)) {
             val sellValue = (pet.coinValue().toLong() * upgradeMult * petCoinMult).toLong()
             _coins.value += sellValue
             _petInventory.value = _petInventory.value.filter { it.id != pet.id }
@@ -1948,7 +2094,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         savePetData()
-        return com.example.prtracker.data.RollResult(pet, chancesUsedForRoll, isLuckyRoll)
+        return com.example.prtracker.data.RollResult(pet, chancesUsedForRoll, isLuckyRoll, displayOneInX = divineOverrideOneInX)
     }
 
     fun rollDiceMultiple(count: Int): List<com.example.prtracker.data.RollResult> {
@@ -1957,43 +2103,73 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
 
     fun fusePet(petId: String) {
         val pet = _petInventory.value.find { it.id == petId } ?: return
-        if (com.example.prtracker.data.PetRarity.fromName(pet.rarity) == com.example.prtracker.data.PetRarity.SUPER) return
+        val rarity = com.example.prtracker.data.PetRarity.fromName(pet.rarity)
+        if (rarity == com.example.prtracker.data.PetRarity.SUPER || rarity == com.example.prtracker.data.PetRarity.EXCLUSIVE) return
         val currentTier = com.example.prtracker.data.PetTier.fromName(pet.tier)
-        val nextTier = com.example.prtracker.data.PetTier.nextTier(currentTier) ?: return
+        val nextTier = com.example.prtracker.data.PetTier.nextTier(currentTier)
 
-        val existingAtTarget = _petInventory.value.filter {
-            it.speciesId == pet.speciesId && it.tier == nextTier.name
-        }
-        val upgradeTarget = existingAtTarget.firstOrNull { it.stars < 5 }
-
-        if (upgradeTarget != null) {
-            val upgraded = upgradeTarget.copy(stars = upgradeTarget.stars + 1)
-            _petInventory.value = _petInventory.value.map {
-                when (it.id) {
-                    pet.id -> null
-                    upgradeTarget.id -> upgraded
-                    else -> it
-                }
-            }.filterNotNull()
-        } else {
-            val fusedPet = pet.copy(
-                id = java.util.UUID.randomUUID().toString(),
-                stars = 1,
-                tier = nextTier.name
-            )
-            _petInventory.value = _petInventory.value.map {
-                if (it.id == pet.id) fusedPet else it
+        if (nextTier != null) {
+            // Standard fusion: evolve to next tier
+            val existingAtTarget = _petInventory.value.filter {
+                it.speciesId == pet.speciesId && it.tier == nextTier.name
             }
+            val upgradeTarget = existingAtTarget.firstOrNull { it.stars < 5 }
+            if (upgradeTarget != null) {
+                val upgraded = upgradeTarget.copy(stars = upgradeTarget.stars + 1)
+                _petInventory.value = _petInventory.value.map {
+                    when (it.id) {
+                        pet.id -> null
+                        upgradeTarget.id -> upgraded
+                        else -> it
+                    }
+                }.filterNotNull()
+            } else {
+                val fusedPet = pet.copy(
+                    id = java.util.UUID.randomUUID().toString(),
+                    stars = 1,
+                    tier = nextTier.name
+                )
+                _petInventory.value = _petInventory.value.map {
+                    if (it.id == pet.id) fusedPet else it
+                }
+            }
+            incrementSpeciesTierCount(pet.speciesId, nextTier.name)
+        } else {
+            // Max tier reached (SUPER, EXCLUSIVE, or RED_MATTER): increase stars via same-tier fusion
+            val existingSameTier = _petInventory.value.filter {
+                it.speciesId == pet.speciesId && it.tier == pet.tier && it.id != pet.id
+            }
+            val starTarget = existingSameTier.firstOrNull { it.stars < 5 }
+            if (starTarget != null) {
+                val upgraded = starTarget.copy(stars = starTarget.stars + 1)
+                _petInventory.value = _petInventory.value.map {
+                    when (it.id) {
+                        pet.id -> null
+                        starTarget.id -> upgraded
+                        else -> it
+                    }
+                }.filterNotNull()
+            } else {
+                val fusedPet = pet.copy(
+                    id = java.util.UUID.randomUUID().toString(),
+                    stars = 1
+                )
+                _petInventory.value = _petInventory.value.map {
+                    if (it.id == pet.id) fusedPet else it
+                }
+            }
+            incrementSpeciesTierCount(pet.speciesId, pet.tier)
         }
-        incrementSpeciesTierCount(pet.speciesId, nextTier.name)
         _equippedPetIds.value = _equippedPetIds.value.filter { it != petId }
         savePetData()
     }
 
     fun fuseAllPets(): Int {
         val fusable = _petInventory.value.filter { pet ->
-            pet.stars == 5 && com.example.prtracker.data.PetTier.fromName(pet.tier) != com.example.prtracker.data.PetTier.RED_MATTER
-                    && com.example.prtracker.data.PetRarity.fromName(pet.rarity) != com.example.prtracker.data.PetRarity.SUPER
+            pet.stars == 5
+                && com.example.prtracker.data.PetTier.nextTier(com.example.prtracker.data.PetTier.fromName(pet.tier)) != null
+                && com.example.prtracker.data.PetRarity.fromName(pet.rarity) != com.example.prtracker.data.PetRarity.SUPER
+                && com.example.prtracker.data.PetRarity.fromName(pet.rarity) != com.example.prtracker.data.PetRarity.EXCLUSIVE
         }
         if (fusable.isEmpty()) return 0
 
@@ -2003,28 +2179,41 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
 
         for (pet in fusable) {
             val currentTier = com.example.prtracker.data.PetTier.fromName(pet.tier)
-            val nextTier = com.example.prtracker.data.PetTier.nextTier(currentTier) ?: continue
+            val nextTier = com.example.prtracker.data.PetTier.nextTier(currentTier)
 
-            val existingAtTarget = current.filter {
-                it.speciesId == pet.speciesId && it.tier == nextTier.name
-            }
-            val upgradeTarget = existingAtTarget.firstOrNull { it.stars < 5 }
-
-            if (upgradeTarget != null) {
-                val upgraded = upgradeTarget.copy(stars = upgradeTarget.stars + 1)
-                current = current.filter { it.id != pet.id && it.id != upgradeTarget.id } + upgraded
-                consumedIds.add(pet.id)
-                consumedIds.add(upgradeTarget.id)
+            if (nextTier != null) {
+                val existingAtTarget = current.filter {
+                    it.speciesId == pet.speciesId && it.tier == nextTier.name
+                }
+                val upgradeTarget = existingAtTarget.firstOrNull { it.stars < 5 }
+                if (upgradeTarget != null) {
+                    val upgraded = upgradeTarget.copy(stars = upgradeTarget.stars + 1)
+                    current = current.filter { it.id != pet.id && it.id != upgradeTarget.id } + upgraded
+                    consumedIds.add(pet.id)
+                    consumedIds.add(upgradeTarget.id)
+                } else {
+                    val fusedPet = pet.copy(id = java.util.UUID.randomUUID().toString(), stars = 1, tier = nextTier.name)
+                    current = current.map { if (it.id == pet.id) fusedPet else it }
+                    consumedIds.add(pet.id)
+                }
+                incrementSpeciesTierCount(pet.speciesId, nextTier.name)
             } else {
-                val fusedPet = pet.copy(
-                    id = java.util.UUID.randomUUID().toString(),
-                    stars = 1,
-                    tier = nextTier.name
-                )
-                current = current.map { if (it.id == pet.id) fusedPet else it }
-                consumedIds.add(pet.id)
+                val existingSameTier = current.filter {
+                    it.speciesId == pet.speciesId && it.tier == pet.tier && it.id != pet.id
+                }
+                val starTarget = existingSameTier.firstOrNull { it.stars < 5 }
+                if (starTarget != null) {
+                    val upgraded = starTarget.copy(stars = starTarget.stars + 1)
+                    current = current.filter { it.id != pet.id && it.id != starTarget.id } + upgraded
+                    consumedIds.add(pet.id)
+                    consumedIds.add(starTarget.id)
+                } else {
+                    val fusedPet = pet.copy(id = java.util.UUID.randomUUID().toString(), stars = 1)
+                    current = current.map { if (it.id == pet.id) fusedPet else it }
+                    consumedIds.add(pet.id)
+                }
+                incrementSpeciesTierCount(pet.speciesId, pet.tier)
             }
-            incrementSpeciesTierCount(pet.speciesId, nextTier.name)
             fusedCount++
         }
 
@@ -2032,6 +2221,34 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
         _equippedPetIds.value = _equippedPetIds.value.filter { it !in consumedIds }
         savePetData()
         return fusedCount
+    }
+
+    fun fusePremiumPets(ids: List<String>): com.example.prtracker.data.Pet? {
+        if (ids.size != 3) return null
+        val pets = ids.mapNotNull { id -> _petInventory.value.find { it.id == id } }
+        if (pets.size != 3) return null
+        val rarities = pets.map { com.example.prtracker.data.PetRarity.fromName(it.rarity) }
+        if (rarities.any { it != com.example.prtracker.data.PetRarity.SUPER && it != com.example.prtracker.data.PetRarity.EXCLUSIVE }) return null
+        if (pets.map { it.speciesId }.distinct().size != 1) return null
+        if (pets.map { it.tier }.distinct().size != 1) return null
+        val currentTier = com.example.prtracker.data.PetTier.fromName(pets.first().tier)
+        val nextTier = com.example.prtracker.data.PetTier.nextTier(currentTier) ?: return null
+        val fusedPet = com.example.prtracker.data.Pet(
+            id = java.util.UUID.randomUUID().toString(),
+            speciesId = pets.first().speciesId,
+            name = pets.first().name,
+            rarity = pets.first().rarity,
+            tier = nextTier.name,
+            stars = 1,
+            obtainedAt = System.currentTimeMillis(),
+            rollNumber = 0,
+            isFavorited = false
+        )
+        _petInventory.value = _petInventory.value.filter { it.id !in ids } + fusedPet
+        incrementSpeciesTierCount(fusedPet.speciesId, nextTier.name)
+        _equippedPetIds.value = _equippedPetIds.value.filter { it !in ids }
+        savePetData()
+        return fusedPet
     }
 
     private fun mergeExercises(local: List<Exercise>, incoming: List<Exercise>): List<Exercise> {

@@ -17,8 +17,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -28,11 +32,19 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
@@ -47,11 +59,12 @@ private fun formatCoins(value: Long): String {
     fun f(v: Long, u: Long, s: String) =
         if (v % u == 0L) "${v / u}$s" else String.format("%.3f$s", v / u.toDouble())
     return when {
-        value >= 1_000_000_000_000L -> f(value, 1_000_000_000_000L, "T")
-        value >= 1_000_000_000L     -> f(value, 1_000_000_000L, "B")
-        value >= 1_000_000L         -> f(value, 1_000_000L, "M")
-        value >= 1_000L             -> f(value, 1_000L, "K")
-        else                        -> value.toString()
+        value >= 1_000_000_000_000_000L -> f(value, 1_000_000_000_000_000L, "Qd")
+        value >= 1_000_000_000_000L     -> f(value, 1_000_000_000_000L, "T")
+        value >= 1_000_000_000L         -> f(value, 1_000_000_000L, "B")
+        value >= 1_000_000L             -> f(value, 1_000_000L, "M")
+        value >= 1_000L                 -> f(value, 1_000L, "K")
+        else                            -> value.toString()
     }
 }
 
@@ -137,7 +150,7 @@ fun PetUpgradesScreen(
                         coins = coins,
                         accent = accent,
                         equippedCount = equippedPetIds.size,
-                        onPurchase = { viewModel.purchaseUpgrade(upgrade) }
+                        onPurchase = { count -> viewModel.purchaseUpgradeMultiple(upgrade, count) }
                     )
                 }
             }
@@ -152,13 +165,34 @@ private fun UpgradeCard(
     coins: Long,
     accent: Color,
     equippedCount: Int = 0,
-    onPurchase: () -> Unit
+    onPurchase: (Int) -> Unit
 ) {
     val isEquipSlots = upgrade == PetUpgrade.EQUIP_SLOTS
     val maxLevel = upgrade.maxLevel()
     val isMaxed = maxLevel != null && currentLevel >= maxLevel
-    val nextCost = if (isMaxed) Long.MAX_VALUE else upgrade.nextLevelCost(currentLevel)
-    val canAfford = coins >= nextCost && !isMaxed
+    val maxQuantity = if (isMaxed) 0 else upgrade.maxPurchaseableLevels(currentLevel, coins)
+        .coerceAtMost(if (maxLevel != null) (maxLevel - currentLevel).coerceAtLeast(0) else 50)
+
+    var quantityText by remember { mutableStateOf("1") }
+    var quantity by remember { mutableIntStateOf(1) }
+
+    fun syncQuantity(newText: String) {
+        quantityText = newText
+        val parsed = newText.toIntOrNull()
+        if (parsed != null) {
+            val clamped = parsed.coerceIn(1, maxQuantity.coerceAtLeast(1))
+            quantity = if (maxQuantity > 0) clamped else 1
+        }
+    }
+
+    if (maxQuantity > 0 && quantity > maxQuantity) {
+        quantity = maxQuantity
+        quantityText = maxQuantity.toString()
+    }
+
+    val totalCost = if (quantity <= 0 || isMaxed) Long.MAX_VALUE
+    else upgrade.totalCostForLevels(currentLevel, quantity)
+    val canAfford = coins >= totalCost && !isMaxed && quantity > 0
 
     GlowingCard(
         modifier = Modifier.fillMaxWidth()
@@ -199,23 +233,6 @@ private fun UpgradeCard(
                             )
                         }
                     }
-                }
-
-                Button(
-                    onClick = { onPurchase() },
-                    enabled = canAfford,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isMaxed) Color(0xFF00FF85).copy(alpha = 0.15f) else if (canAfford) Color(0xFFFFD700).copy(alpha = 0.15f) else Color.Gray.copy(alpha = 0.1f),
-                        disabledContainerColor = if (isMaxed) Color(0xFF00FF85).copy(alpha = 0.1f) else Color.Gray.copy(alpha = 0.1f)
-                    )
-                ) {
-                    Text(
-                        text = if (isMaxed) "MAX" else formatCoins(nextCost),
-                        color = if (isMaxed) Color(0xFF00FF85) else if (canAfford) Color(0xFFFFD700) else Color.Gray,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontFamily = FontFamily.Monospace
-                    )
                 }
             }
 
@@ -265,9 +282,9 @@ private fun UpgradeCard(
                 PetUpgrade.COIN_MULTIPLIER -> "Coins: ${"%.1f".format(1.0 + currentLevel * 0.20)}x per roll (+0.20x per level)"
                 PetUpgrade.EQUIP_SLOTS -> "Equipped: $equippedCount/${currentLevel + 2} slots used"
                 PetUpgrade.MULTI_ROLL -> {
-                    val currentRolls = com.example.prtracker.data.PetUpgrade.multiRollCount(currentLevel)
+                    val currentRolls = PetUpgrade.multiRollCount(currentLevel)
                     if (currentLevel >= 3) "MAX: ${currentRolls}x dice per roll"
-                    else "Currently: ${currentRolls}x dice \u2192 Next: ${com.example.prtracker.data.PetUpgrade.multiRollCount(currentLevel + 1)}x dice"
+                    else "Currently: ${currentRolls}x dice \u2192 Next: ${PetUpgrade.multiRollCount(currentLevel + 1)}x dice"
                 }
             }
             Text(
@@ -276,6 +293,141 @@ private fun UpgradeCard(
                 style = MaterialTheme.typography.labelSmall,
                 fontFamily = FontFamily.Monospace
             )
+
+            if (!isMaxed) {
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        IconButton(
+                            onClick = {
+                                val new = (quantity - 1).coerceAtLeast(1)
+                                quantity = new
+                                quantityText = new.toString()
+                            },
+                            enabled = quantity > 1,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    if (quantity > 1) accent.copy(alpha = 0.15f)
+                                    else Color.Gray.copy(alpha = 0.1f)
+                                )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Remove,
+                                contentDescription = "Decrease",
+                                tint = if (quantity > 1) accent else Color.Gray,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .width(56.dp)
+                                .height(36.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFF0D1526))
+                                .border(
+                                    width = 1.dp,
+                                    color = accent.copy(alpha = 0.3f),
+                                    shape = RoundedCornerShape(8.dp)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            BasicTextField(
+                                value = quantityText,
+                                onValueChange = { newText ->
+                                    if (newText.all { it.isDigit() } && newText.length <= 4) {
+                                        syncQuantity(newText)
+                                    }
+                                },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                singleLine = true,
+                                textStyle = TextStyle(
+                                    color = accent,
+                                    fontSize = 16.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    textAlign = TextAlign.Center
+                                ),
+                                cursorBrush = SolidColor(accent),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+
+                        IconButton(
+                            onClick = {
+                                val new = (quantity + 1).coerceAtMost(maxQuantity.coerceAtLeast(1))
+                                quantity = new
+                                quantityText = new.toString()
+                            },
+                            enabled = quantity < maxQuantity,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    if (quantity < maxQuantity) accent.copy(alpha = 0.15f)
+                                    else Color.Gray.copy(alpha = 0.1f)
+                                )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "Increase",
+                                tint = if (quantity < maxQuantity) accent else Color.Gray,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
+                    if (quantity > 1) {
+                        Text(
+                            text = formatCoins(totalCost),
+                            color = Color(0xFFFFD700),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+
+                    Button(
+                        onClick = { onPurchase(quantity) },
+                        enabled = canAfford,
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFFFD700).copy(alpha = 0.15f),
+                            disabledContainerColor = Color.Gray.copy(alpha = 0.1f)
+                        )
+                    ) {
+                        Text(
+                            text = if (quantity > 1) "BUY $quantity" else "BUY",
+                            color = if (canAfford) Color(0xFFFFD700) else Color.Gray,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+
+                if (quantity > 1) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        Text(
+                            text = "${formatCoins(totalCost / quantity)} per level",
+                            color = Color(0xFF6B8CAE).copy(alpha = 0.6f),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+            }
         }
     }
 }

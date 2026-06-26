@@ -19,7 +19,7 @@ enum class SpecialDiceType(
     BANISHING(
         id = "banishing",
         displayName = "BANISHING DICE",
-        description = "Banishes all common pets for the next rolls",
+        description = "Banishes common — 1/1000 chance of divine",
         price = 100_000L,
         rollsCount = 10,
         minRarity = PetRarity.UNCOMMON,
@@ -30,7 +30,7 @@ enum class SpecialDiceType(
     REFINING(
         id = "refining",
         displayName = "REFINING DICE",
-        description = "Weighted odds — RARE 61.7%, EPIC 25%, LEGENDARY 11.1%, MYTHICAL 2.2%",
+        description = "Weighted odds — RARE 61.7%, EPIC 25%, LEGENDARY 11.1%, MYTHICAL 2.2%, DIVINE 1%",
         price = 500_000L,
         rollsCount = 5,
         minRarity = PetRarity.RARE,
@@ -47,7 +47,7 @@ enum class SpecialDiceType(
     ASCENDANT(
         id = "ascendant",
         displayName = "ASCENDANT DICE",
-        description = "Weighted odds — EPIC 63.9%, LEGENDARY 25%, MYTHICAL 11.1%",
+        description = "Weighted odds — EPIC 63.9%, LEGENDARY 25%, MYTHICAL 11.1%, DIVINE 5%",
         price = 1_000_000L,
         rollsCount = 5,
         minRarity = PetRarity.EPIC,
@@ -63,7 +63,7 @@ enum class SpecialDiceType(
     LEGENDARY(
         id = "legendary",
         displayName = "LEGENDARY DICE",
-        description = "Weighted odds — LEGENDARY 75%, MYTHICAL 25%",
+        description = "Weighted odds — LEGENDARY 75%, MYTHICAL 25%, DIVINE 12.5%",
         price = 10_000_000L,
         rollsCount = 5,
         minRarity = PetRarity.LEGENDARY,
@@ -78,7 +78,7 @@ enum class SpecialDiceType(
     MYTHIC(
         id = "mythic",
         displayName = "MYTHIC DICE",
-        description = "Unveils pure mythic destiny — only mythical pets",
+        description = "Unveils mythic destiny — mythical pets, 1/9 chance of divine, 1/100k chance of exclusive",
         price = 25_000_000L,
         rollsCount = 5,
         minRarity = PetRarity.MYTHICAL,
@@ -89,7 +89,7 @@ enum class SpecialDiceType(
     SUPER_DICE(
         id = "super_dice",
         displayName = "SUPER DICE",
-        description = "Guarantees a SUPER rarity pet — cosmic tier, 1 in 100,000 on demand",
+        description = "Guarantees a SUPER rarity pet — 1/1000 chance of EXCLUSIVE",
         price = 1_000_000_000_000L,
         rollsCount = 1,
         minRarity = PetRarity.SUPER,
