@@ -150,9 +150,11 @@ Prtracker/
             │   ├── RunningPREngine.kt       # Running PR computation engine
             │   ├── WorkoutPreset.kt         # PresetExercise and WorkoutPreset data classes (preset templates)
             │   ├── WorkoutSession.kt        # WorkoutSession, SessionExerciseProgress, SessionSetEntry data classes
-            │   ├── Pet.kt                   # Pet data class, PetRarity (6 tiers), PetTier (6 tiers), PetSpecies, PetCatalog
-            │   ├── PetUpgrade.kt            # PetUpgrade enum (LUCK, ROLL_SPEED, LUCKY_ROLL, COIN_MULTIPLIER) with cost formulas
-            │   └── StorageManager.kt         # Gson-based JSON file read/write (exercises + goals + weight + settings + presets + sessions + history)
+            │   ├── Pet.kt                   # Pet data class, PetRarity (7 tiers incl. SUPER), PetTier (6 tiers), PetSpecies, PetCatalog, MiniGameSettings, RollResult
+            │   ├── PetUpgrade.kt            # PetUpgrade enum (LUCK, ROLL_SPEED, LUCKY_ROLL, COIN_MULTIPLIER, EQUIP_SLOTS, MULTI_ROLL) with cost formulas
+            │   ├── SpecialDice.kt           # SpecialDiceType enum (6 dice types incl. SUPER_DICE), SpecialDice, ActiveDiceEffect, SpecialDiceCatalog
+            │   ├── PotionType.kt            # PotionType enum (XP_DOUBLE) for consumable potions
+            │   └── StorageManager.kt         # Gson-based JSON file read/write (exercises + goals + weight + settings + presets + sessions + history + pets)
             ├── viewmodel/
             │   └── PRViewModel.kt            # Shared ViewModel (exercises, goals, weight, settings, haptic state, workout history)
             ├── navigation/
@@ -163,7 +165,8 @@ Prtracker/
             │   ├── MorningReminderWorker.kt  # WorkManager worker for daily 8:00 AM training reminder
             │   ├── GoalNotificationWorker.kt # WorkManager worker for daily 8:30 AM goal reminders
             │   ├── EveningReviewWorker.kt    # WorkManager worker for daily 9:30 PM daily review summary
-            │   └── WeeklySummaryWorker.kt    # WorkManager worker for Sunday 10 PM weekly summary
+            │   ├── WeeklySummaryWorker.kt    # WorkManager worker for Sunday 10 PM weekly summary
+            │   └── PotionCooldownWorker.kt   # WorkManager worker for potion cooldown checks
             └── ui/
                 ├── theme/
                 │   ├── Color.kt              # Cyberpunk color palette + pinned/complete colors
@@ -207,11 +210,13 @@ Prtracker/
                     ├── WorkoutSessionScreen.kt # Live workout execution with timer, per-set input, pause/resume/finish
                     ├── PresetAnalysisScreen.kt # Movement pattern analysis with pentagonal radar chart and exercise classification (VP/HP/CL/VPush/HPush)
                     ├── RestGameScreen.kt        # Protein Catch mini-game: catch falling scoops to fill cup, servings score, chaos bursts
-                    ├── DiceRollScreen.kt        # Pet dice roll mini-game: rarity/pity system, fusion, selling, tap-dice-to-roll
+                    ├── DiceRollScreen.kt        # Pet dice roll mini-game: rarity/pity system, fusion, selling, multi-roll, gear icon
                     ├── DiceShopScreen.kt         # Special dice shop: buy consumable dice that filter rarity chances
-                    ├── DiceInventoryScreen.kt    # Owned special dice: activate consumable dice for filtered rolls
+                    ├── DiceInventoryScreen.kt    # Owned special dice: grouped icons, USE popup with quantity selector
                     ├── PetInventoryScreen.kt     # Pet inventory full-screen: search, sort, grid, inline pet detail, bulk actions
-                    └── PetUpgradesScreen.kt     # Pet upgrade shop: LUCK, ROLL_SPEED, LUCKY_ROLL, COIN_MULTIPLIER, EQUIP_SLOTS upgrades
+                    ├── PetUpgradesScreen.kt     # Pet upgrade shop: LUCK, ROLL_SPEED, LUCKY_ROLL, COIN_MULTIPLIER, EQUIP_SLOTS, MULTI_ROLL upgrades
+                    ├── MiniGameSettingsScreen.kt # Dice minigame settings: auto-sell per rarity, roll count selector
+                    └── PetIndexScreen.kt        # Pet index (pokédex): tier filter, species grid, pet detail overlay with star management
 ```
 
 ---
@@ -369,7 +374,7 @@ data class Pet(
     val id: String = UUID.randomUUID().toString(),
     val speciesId: String = "",
     val name: String = "",
-    val rarity: String = "COMMON",    // COMMON, UNCOMMON, RARE, EPIC, LEGENDARY, MYTHICAL
+    val rarity: String = "COMMON",    // COMMON, UNCOMMON, RARE, EPIC, LEGENDARY, MYTHICAL, SUPER
     val stars: Int = 1,               // 1-5 stars
     val obtainedAt: Long = System.currentTimeMillis(),
     val rollNumber: Int = 0,
@@ -380,13 +385,15 @@ data class Pet(
 
 `PetRarity` enum defines 7 rarity tiers with drop chances, base coin values, and base XP multipliers: COMMON (54.4%, 100 coins, 1.00x), UNCOMMON (28%, 250 coins, 1.05x), RARE (13%, 600 coins, 1.10x), EPIC (4%, 1500 coins, 1.20x), LEGENDARY (0.5%, 5000 coins, 1.35x), MYTHICAL (0.1%, 15000 coins, 1.50x), SUPER (0.001% 1/100k independent, 100B coins, 1.00x).
 
-`PetTier` enum defines 6 evolution tiers with coin multipliers and XP multipliers: NORMAL (1x, 1.00x), SILVER (2x, 1.10x), GOLDEN (4x, 1.25x), RAINBOW (8x, 1.40x), DARK_MATTER (16x, 1.60x), RED_MATTER (32x, 2.00x). A pet's coin value = `PetRarity.baseCoins × PetTier.coinMultiplier × stars`. A pet's XP multiplier = `PetRarity.baseXpMult × PetTier.xpMult × (1 + (stars-1) × 0.01)`.
+`PetTier` enum defines 6 evolution tiers with coin multipliers and XP multipliers: NORMAL (1x, 1.00x), SILVER (2x, 1.10x), GOLDEN (4x, 1.25x), RAINBOW (8x, 1.45x), DARK_MATTER (16x, 1.70x), RED_MATTER (32x, 2.00x). A pet's coin value = `PetRarity.baseCoins × PetTier.coinMultiplier × stars`. A pet's XP multiplier = `PetRarity.baseXpMult × PetTier.xpMult × (1 + (stars-1) × 0.05f)`. SUPER pets: `1.1f × tier.xpMult × bestNonSuperMultiplier`.
 
-`PetSpecies` holds 18 placeholder species (6 per rarity). `PetCatalog.allSpecies` is the registry. Species are code-only — only `Pet` instances are persisted to JSON.
+`PetSpecies` holds 18+ placeholder species (6+ per rarity including SUPER). `PetCatalog.allSpecies` is the registry. Species are code-only — only `Pet` instances are persisted to JSON.
 
-`fun Pet.coinValue()` extension function computes the sell value. Fusion consumes a 5★ pet and creates the next tier with 1★.
+`fun Pet.coinValue()` extension function computes the sell value. `fun Pet.xpMultiplier(inventory)` extension function computes XP multiplier with dynamic SUPER formula. Fusion consumes a 5★ pet and creates the next tier with 1★.
 
-`data class RollResult(pet, effectiveChances, isLuckyRoll)` — returned by `rollDice()`. `effectiveChances` contains the actual boosted chances used for the roll (including lucky roll boost), used for the "1 in X CHANCE" display on pet reveal.
+`data class RollResult(pet, effectiveChances, isLuckyRoll, wasSold)` — returned by `rollDice()`. `effectiveChances` contains the actual boosted chances used for the roll (including lucky roll boost), used for the "1 in X CHANCE" display on pet reveal.
+
+`data class MiniGameSettings(autoSellRarities, selectedRollCount)` — per-user minigame preferences stored in `PetStorageData.miniGameSettings`. `autoSellRarities` is a `Set<String>` of rarity names to auto-sell on roll. `selectedRollCount` is the chosen dice count per roll (0 = use max unlocked).
 
 ### `PetUpgrade` (`data/PetUpgrade.kt`)
 
@@ -402,8 +409,9 @@ enum class PetUpgrade(
     LUCK(id = "luck", displayName = "LUCK", description = "Improves rare drop chances (+20% per level)", baseCost = 500L, costMultiplier = 1.12f),
     COIN_MULTIPLIER(id = "coin_multiplier", displayName = "COIN MULTIPLIER", description = "Boosts coins earned per roll (+0.20x per level)", baseCost = 600L, costMultiplier = 1.13f),
     ROLL_SPEED(id = "roll_speed", displayName = "ROLL SPEED", description = "Faster dice animation (-72ms per level)", baseCost = 300L, costMultiplier = 1.10f),
-    LUCKY_ROLL(id = "lucky_roll", displayName = "LUCKY ROLL", description = "Every 5th roll is lucky — boosted rarity chances", baseCost = 1000L, costMultiplier = 1.15f),
-    EQUIP_SLOTS(id = "equip_slots", displayName = "EQUIP SLOTS", description = "More active pet equip slots", baseCost = 0L, costMultiplier = 1f, fixedCosts = listOf(1_000_000L, 10_000_000L, 100_000_000L));
+    LUCKY_ROLL(id = "lucky_roll", displayName = "LUCKY ROLL", description = "Every 5th roll is lucky — boosted rarity chances. Higher levels upgrade pet tier.", baseCost = 1000L, costMultiplier = 1.15f),
+    EQUIP_SLOTS(id = "equip_slots", displayName = "EQUIP SLOTS", description = "Equip more pets for XP bonuses (max 5)", baseCost = 0L, costMultiplier = 1f, fixedCosts = listOf(1_000_000L, 10_000_000L, 100_000_000L)),
+    MULTI_ROLL(id = "multi_roll", displayName = "MULTI ROLL", description = "Roll multiple dice at once", baseCost = 0L, costMultiplier = 1f, fixedCosts = listOf(1_000_000L, 100_000_000L, 10_000_000_000L));
 
     open fun costForLevel(currentLevel: Int): Long {
         if (fixedCosts != null) return if (currentLevel < fixedCosts.size) fixedCosts[currentLevel] else Long.MAX_VALUE
@@ -417,7 +425,7 @@ enum class PetUpgrade(
 }
 ```
 
-5 upgradeable stats stored as `Map<String, Int>` in `PetStorageData.petUpgrades` (upgrade ID → level). Cost scaling uses a **recursive formula**: standard upgrades ×1.25 per level (`baseCost × 1.25^level`), ROLL_SPEED uses ×1.8 per level (`baseCost × 1.8^level`, max 23 at 0ms). All costs are capped at 100M coins (`coerceAtMost(100_000_000L)`) so upgrades never cost more than 100M per level. EQUIP_SLOTS uses fixed costs (1M/10M/100M) with max 3 levels. **Luck**: each level adds +20% to ALL non-COMMON rarity chances (Lv1=1.2x, Lv5=2.0x). **Coin Multiplier**: each level adds +0.20x to all coin earnings (Lv1=1.2x, Lv5=2.0x); coin earnings are also multiplied by the pet XP multiplier from equipped pets. **Roll Speed**: each level reduces dice animation delay by 72ms (base 1600ms, reaches 0ms at L23). **Lucky Roll**: every 5th roll when upgrade > 0, boosted rarity chances scaling with level (+0.25x per level), and tier of rolled pets is based on lucky roll level: Lv1+=SILVER, Lv51+=GOLDEN, Lv101+=RAINBOW, Lv151+=DARK_MATTER, Lv201+=RED_MATTER. **Equip Slots**: adds starting equip slots (base 2, each level adds 1, max 5). Accessible via the coin counter on DiceRollScreen.
+6 upgradeable stats stored as `Map<String, Int>` in `PetStorageData.petUpgrades` (upgrade ID → level). Cost scaling uses a **recursive formula**: standard upgrades ×1.25 per level (`baseCost × 1.25^level`), ROLL_SPEED uses ×1.8 per level (`baseCost × 1.8^level`, max 23 at 0ms). All costs are capped at 100M coins (`coerceAtMost(100_000_000L)`) so upgrades never cost more than 100M per level. EQUIP_SLOTS uses fixed costs (1M/10M/100M) with max 3 levels. **Luck**: each level adds +20% to ALL non-COMMON rarity chances (Lv1=1.2x, Lv5=2.0x). **Coin Multiplier**: each level adds +0.20x to all coin earnings (Lv1=1.2x, Lv5=2.0x); coin earnings are also multiplied by the pet XP multiplier from equipped pets. **Roll Speed**: each level reduces dice animation delay by 72ms (base 1600ms, reaches 0ms at L23). **Lucky Roll**: every 5th roll when upgrade > 0, boosted rarity chances scaling with level (+0.25x per level), and tier of rolled pets is based on lucky roll level: Lv1+=SILVER, Lv51+=GOLDEN, Lv101+=RAINBOW, Lv151+=DARK_MATTER, Lv201+=RED_MATTER. **Equip Slots**: adds starting equip slots (base 2, each level adds 1, max 5). **Multi Roll**: 3 fixed-cost levels — Lv1 (2x, 1M), Lv2 (3x, 100M), Lv3 (5x, 10B). Accessible via the gear icon on DiceRollScreen.
 
 ### `LeverageTelemetry` (`data/LeverageTelemetry.kt`)
 
@@ -583,11 +591,14 @@ data class StorageData(
     val rollsSinceMythical: Long = 0L,               // Hard pity: guaranteed mythical at 2001
     val lastDiceRollTimestamp: Long = 0L,            // Timestamp of last roll
     val coins: Long = 0L,                             // Pet dice coins (earned on every roll)
-    val petUpgrades: Map<String, Int> = emptyMap()    // Upgrade ID → level (e.g. "luck" → 3)
+    val petUpgrades: Map<String, Int> = emptyMap(),   // Upgrade ID → level (e.g. "luck" → 3)
+    val potionInventory: Map<String, Int> = emptyMap(),  // PotionType.name → quantity remaining
+    val lastPotionEarnedTimestamp: Long = 0L,         // Timestamp of last potion earned
+    val miniGameHighScore: Int = 0                    // Protein Catch mini-game high score
 )
 ```
 
-`restDays` is a list of date strings where the user explicitly marked a rest day. Defaults to empty list for backward compatibility with old JSON files — no migration needed. `runEntries` and `runningPRs` both have defaults for Gson backward compat. `workoutPresets` defaults to empty list for backward compatibility. `workoutSession` defaults to null for backward compatibility. `workoutHistory` defaults to empty list for backward compatibility with older JSON files. `totalXp` and `xpBootstrapped` default to 0L and false for Gson backward compat. All pet fields (`petInventory`, `totalRolls`, `rollsSinceEpicOrAbove`, `rollsSinceLegendary`, `rollsSinceMythical`, `lastDiceRollTimestamp`, `coins`, `petUpgrades`) default to empty/0L for Gson backward compat.
+`restDays` is a list of date strings where the user explicitly marked a rest day. Defaults to empty list for backward compatibility with old JSON files — no migration needed. `runEntries` and `runningPRs` both have defaults for Gson backward compat. `workoutPresets` defaults to empty list for backward compatibility. `workoutSession` defaults to null for backward compatibility. `workoutHistory` defaults to empty list for backward compatibility with older JSON files. `totalXp` and `xpBootstrapped` default to 0L and false for Gson backward compat. All pet fields (`petInventory`, `totalRolls`, `rollsSinceEpicOrAbove`, `rollsSinceLegendary`, `rollsSinceMythical`, `lastDiceRollTimestamp`, `coins`, `petUpgrades`) default to empty/0L for Gson backward compat. `potionInventory` defaults to emptyMap, `lastPotionEarnedTimestamp` to 0L, and `miniGameHighScore` to 0 for Gson backward compat.
 
 ### `PetStorageData` wrapper (pet data — `pets.json`)
 
@@ -604,7 +615,9 @@ data class PetStorageData(
     val petUpgrades: Map<String, Int> = emptyMap(),
     val equippedPetIds: List<String> = emptyList(),  // IDs of equipped pets (max 2-5 slots)
     val diceInventory: List<SpecialDice> = emptyList(),     // Owned special dice (consumable)
-    val activeDiceEffects: List<ActiveDiceEffect> = emptyList()  // Active dice queue (strongest first)
+    val activeDiceEffects: List<ActiveDiceEffect> = emptyList(),  // Active dice queue (strongest first)
+    val miniGameSettings: MiniGameSettings = MiniGameSettings(),  // Auto-sell preferences + roll count selector
+    val speciesTierCounts: Map<String, Int> = emptyMap()  // Pet index: "speciesId_tier" → count obtained
 )
 ```
 
@@ -620,8 +633,8 @@ Separate from `StorageData` to avoid rewriting the full app JSON on every pet ac
 | `saveExercises(List<Exercise>)`                                                                                                                                      | Preserves existing goals, weight entries, settings, and restDays; saves updated exercises.                                                                                                                                      |
 | `loadFullData(): StorageData`                                                                                                                                        | Reads `prs.json` and returns the full `StorageData` object (for the settings screen).                                                                                                                                           |
 | `saveFullData(...)` | Saves the full `StorageData` object (all nineteen fields) to `prs.json`.                                                                                         |
-| `loadPetData(): PetStorageData`                                                                                                                                      | Reads `pets.json` and returns the full `PetStorageData` object. Falls back to migrating pet fields from old `prs.json` via `migrateIfNeeded()`.                                                                                 |
-| `savePetData(...)` | Saves the full `PetStorageData` object (11 fields) to `pets.json`. Only called for pet-specific operations (dice roll, fuse, sell, upgrade, equip, favorite).                                                                    |
+| `loadPetData(): PetStorageData`                                                                                                                                      | Reads `pets.json` and returns the full `PetStorageData` object. Falls back to migrating pet fields from old `prs.json` via `migrateIfNeeded()`. Runs `collapseDiceInventory()` to merge duplicate dice entries. |
+| `savePetData(...)` | Saves the full `PetStorageData` object (13 fields) to `pets.json`. Only called for pet-specific operations (dice roll, fuse, sell, upgrade, equip, favorite).                                                                    |
 | `migrateIfNeeded()` | One-time migration: moves pet fields from old `prs.json` to `pets.json`. Deletes pet fields from `prs.json` after migration.                                                                                                     |
 
 ---
@@ -665,6 +678,8 @@ Separate from `StorageData` to avoid rewriting the full app JSON on every pet ac
 | `"dice_inventory"`             | `DiceInventoryScreen`        | None                 |
 | `"pet_inventory"`              | `PetInventoryScreen`         | None                 |
 | `"pet_upgrades"`               | `PetUpgradesScreen`          | None                 |
+| `"mini_game_settings"`         | `MiniGameSettingsScreen`     | None                 |
+| `"pet_index"`                  | `PetIndexScreen`             | None                 |
 
 Helper functions in the `Routes` object:
 
@@ -682,10 +697,12 @@ Routes.workoutSession(id) // → "workout_session/<id>"
 Routes without helper functions (accessed via const vals directly):
 
 ```kotlin
-Routes.LIVE_RUN         // = "live_run"
-Routes.APPEARANCE       // = "appearance"
-Routes.DICE_SHOP        // = "dice_shop"
-Routes.DICE_INVENTORY   // = "dice_inventory"
+Routes.LIVE_RUN           // = "live_run"
+Routes.APPEARANCE         // = "appearance"
+Routes.DICE_SHOP          // = "dice_shop"
+Routes.DICE_INVENTORY     // = "dice_inventory"
+Routes.MINI_GAME_SETTINGS // = "mini_game_settings"
+Routes.PET_INDEX          // = "pet_index"
 ```
 
 ### Navigation Flow
@@ -755,6 +772,12 @@ DiceInventoryScreen ──"USE" dialog──→ activates dice, pops back to Dic
 DiceRollScreen ──"SHOP" button──→ DiceShopScreen
 DiceShopScreen ──back──→ pops back to DiceRollScreen
 DiceShopScreen ──"BUY" button──→ coins deducted, dice added to inventory
+
+DiceRollScreen ──gear icon──→ MiniGameSettingsScreen
+MiniGameSettingsScreen ──back──→ pops back to DiceRollScreen
+
+DiceRollScreen ──🖥️ icon──→ PetIndexScreen
+PetIndexScreen ──back──→ pops back to DiceRollScreen
 
 CalendarScreen ──bottom nav──→ any other bottom nav route
 CalendarScreen ──tap WORKOUT day──→ shows popup with exercises logged that day
@@ -1327,7 +1350,7 @@ val TierSystemOverride = Color(0xFFB026FF)  // Neon purple (same as SuccessPurpl
 - **Full-screen layout:** No bottom nav bar (hidden via `showBottomBar` logic).
 - **States:** Four states managed by `DiceRollState` enum — `IDLE`, `ROLLING`, `REVEAL`, `PET_DETAIL`.
 - **Color scheme:** All interactive elements use hardcoded `Color(0xFFFFD700)` (gold) as accent.
-- **Title row:** Back arrow (arrow icon) in top-left, "PET DICE" title in `headlineMedium` Monospace centered.
+- **Title row:** Back arrow (arrow icon) in top-left, "PET DICE" title in `headlineMedium` Monospace centered, gear icon (⚙️) right — navigates to `MiniGameSettingsScreen`.
 - **Combined stats + controls + coins row:** Below the title, a single horizontal `Row` with `SpaceBetween` arrangement containing:
   - Left: Roll count and pity counters (EPIC+, LEGENDARY, MYTHICAL) in small Monospace
   - Center: AUTO toggle button (`Icons.Default.Autorenew`) — toggles auto-roll on/off via `viewModel.toggleAutoRoll()`, uses `autoRoll` StateFlow from ViewModel (persists across navigation)
@@ -1335,20 +1358,22 @@ val TierSystemOverride = Color(0xFFB026FF)  // Neon purple (same as SuccessPurpl
 - **Lucky countdown:** Below the stats row, shows "LUCKY IN X" text (X = rollsUntilLucky - 1) in gold, or "LUCKY ROLL!" when a lucky roll is ready (rollsUntilLucky == 1). Only visible when lucky_roll upgrade > 0.
 - **Equipped pets row:** If any pets are equipped, shows a row of equipped pet emojis with a "+X% XP" text in green monospace. Tap an emoji to unequip that pet. Below the inventory button.
 - **Inventory button:** Centered row showing "📦 INVENTORY (count)" with accent color pill. Navigates to `PetInventoryScreen` via `navController.navigate(Routes.PET_INVENTORY)`.
-- **IDLE state:** `IdleDiceView` — 160dp gold `Casino` icon button that triggers roll. "TAP TO ROLL" label.
-- **ROLLING state:** `RollingDiceView` — 3D dice rotation via `graphicsLayer { rotationX/rotationY }`, gold border, sparkle particles around the dice, "ROLLING..." label with pulsing animation.
-- **REVEAL state:** Split layout — top area (weight 1f) shows `RevealView` (pet emoji, rarity badge, name, stars, "1 in X CHANCE" display floored at 2, "TAP TO DISMISS" text). Bottom area (220dp) shows idle dice — **tappable to roll again** without dismissing the reveal first. RevealView is scrollable via `verticalScroll` so all content fits.
+- **IDLE state:** `DiceView` (unified composable) — 93dp gold `Casino` icon button that triggers roll. "TAP TO ROLL" label. Same visual for IDLE and ROLLING states. Dice gets dual-pulse glow circles + horizontal shake when SUPER dice is active.
+- **ROLLING state:** Same `DiceView` as IDLE — label changes to "ROLL (X LEFT)" showing remaining rolls when multi-roll. Multi-roll uses `rollDiceMultiple(getEffectiveRollCount())`.
+- **REVEAL state:** Split layout — top area (weight 1f) shows `RevealView` (pet emoji, rarity badge, name, stars, "1 in X CHANCE" display floored at 2, NO "TAP TO DISMISS" text). For multi-roll: `MultiRevealView` shows all pets in a grid layout (emoji box + name in rarity color + single tier pill per cell, not tappable). Bottom area (140dp) shows idle dice — **tappable to roll again** without dismissing the reveal first. RevealView is scrollable via `verticalScroll` so all content fits.
 - **PET_DETAIL state:** Full-screen `PetDetailView` overlay (bottom dice area hidden) showing:
-  - Large pet emoji in center with tier-colored border glow
+  - Large pet emoji in center with tier-colored border glow (abyssal glow + dual-pulse for SUPER)
   - Pet name in Monospace
-  - Rarity badge pill (color-coded)
+  - Rarity badge pill (color-coded, "SUPER" for SUPER)
   - Tier badge pill (color-coded with tier label)
-  - Stars display (★/☆, gold when >= 3 stars)
+  - Stars display (★/☆, gold when >= 3 stars; hidden for SUPER)
   - **Favorite toggle** — star icon button, toggles `isFavorited` with haptic feedback
-  - **FUSE button** (visible when 5★ and not max tier) — upgrades pet to next tier, consumes old pet, resets stars to 1. Calls `viewModel.fusePet(petId)`.
-  - **SELL button** — sells pet for coin value (baseCoins × tierMultiplier × stars). Calls `viewModel.sellPet(petId)`. Shows confirmation dialog before selling.
+  - **FUSE button** (visible when 5★ and not max tier, not SUPER) — upgrades pet to next tier, consumes old pet, resets stars to 1. Calls `viewModel.fusePet(petId)`.
+  - **SELL button** — sells pet for coin value (baseCoins × tierMultiplier × stars). Shows sell value with `formatCoin1(value)`. Calls `viewModel.sellPet(petId)`. Shows confirmation dialog before selling.
   - "TAP TO DISMISS" text below
+- **Button row:** Below the inventory button, side by side: 🖥️ Pet Index button (navigates to `PetIndexScreen`) and 🎲 Dice button (navigates to `DiceInventoryScreen`).
 - **Auto-roll loop:** A separate `LaunchedEffect(autoRoll)` runs a continuous `while` loop checking `rollState`. On IDLE: triggers roll + dice animation. On REVEAL: waits rollDelay then triggers next roll. On PET_DETAIL: silently calls `viewModel.rollDice()` every 2s without changing state. On ROLLING: waits. Auto-roll only stops via explicit toggle — navigating away, fusing, viewing pets don't stop it.
+- **Multi-roll:** `multiRollResults: List<RollResult>` holds batch results; `selectedResultIndex` controls which pet is shown in PET_DETAIL. Multi-RevealView is display-only (not tappable). Single roll shows normal RevealView.
 - **Merge import:** MERGE mode deduplicates pets by ID, keeps higher tier then higher stars, `maxOf` for coins.
 - **Coin counter:** Clickable, navigates to `PetUpgradesScreen` via `navController.navigate(Routes.PET_UPGRADES)`.
 - **Roll speed:** Dice animation delay scales with `roll_speed` upgrade level (`maxOf(200, 1600 - level * 72)` ms).
@@ -1393,6 +1418,34 @@ val TierSystemOverride = Color(0xFFB026FF)  // Neon purple (same as SuccessPurpl
   - Effect preview text showing next-level benefit
 - **Navigation:** Accessed via coin counter tap on `DiceRollScreen`.
 
+### 8.27 MiniGameSettingsScreen
+
+- **Animated background:** `GridBackground()` composable.
+- **Full-screen layout:** No bottom nav bar (hidden via `showBottomBar` logic).
+- **Back button:** ArrowBack icon in top-left, pops back to DiceRollScreen.
+- **Title:** "MINI GAME SETTINGS" in `headlineMedium` Monospace gold.
+- **Auto-Sell section:** `GlowingCard` containing a list of rarity checkboxes. Each checkbox shows a colored rarity dot + rarity name + "AUTO SELL" label. COMMON and SUPER are excluded (SUPER is never auto-sellable). Checked rarities are stored in `_miniGameSettings.autoSellRarities`. Description text below: "Sold on roll — still shown in showcase".
+- **Roll Count section:** `GlowingCard` containing a row of pill buttons: "1x", "2x", "3x", "5x". The max available dice count is derived from `PetUpgrade.MULTI_ROLL.level`. Higher levels unlock more options. The selected count is stored in `_miniGameSettings.selectedRollCount`. "DEFAULT" label when set to max unlocked.
+- **Navigation:** Accessed via gear icon (⚙️) on DiceRollScreen title bar.
+
+### 8.28 PetIndexScreen
+
+- **Animated background:** `GridBackground()` composable.
+- **Full-screen layout:** No bottom nav bar (hidden via `showBottomBar` logic).
+- **Back button:** ArrowBack icon in top-left, pops back to DiceRollScreen.
+- **Title:** "PET INDEX" in `headlineMedium` Monospace gold.
+- **Tier filter pills:** A horizontal `LazyRow` of filter pills for each tier (NORMAL, SILVER, GOLDEN, RAINBOW, DARK_MATTER, RED_MATTER). Tapping a pill filters the grid to show only that tier's species.
+- **Species grid:** `LazyVerticalGrid` with 4 columns showing all 18 PetCatalog species for the selected tier. Each cell shows:
+  - For unlocked species (count > 0): pet emoji with rarity-colored border, species name below, "×N" count badge showing how many obtained
+  - For locked species (count == 0): "❓" placeholder, dimmed appearance
+- **Pet detail overlay:** Tapping an unlocked species opens a full-screen overlay showing:
+  - Large emoji with rarity-colored border
+  - Pet name and rarity badge
+  - Total obtained count
+  - Star management (non-SUPER only): interactive ★/☆ selector, sell button with coin value, equip/unequip button
+  - SUPER pets show tier pills and formula display instead of star selector
+- **Navigation:** Accessed via 🖥️ button on DiceRollScreen button row.
+
 ---
 
 ## 9. ViewModel Structure
@@ -1435,10 +1488,14 @@ Extends `AndroidViewModel(application)` for app context access.
 | `petUpgrades`        | `StateFlow<Map<String, Int>>`                     | Upgrade ID → level (e.g. "luck" → 3)                                                                                                                                         |
 | `autoRoll`           | `StateFlow<Boolean>`                              | Auto-roll toggle state, persists across navigation                                                                                                                             |
 | `equippedPetIds`     | `StateFlow<List<String>>`                         | IDs of equipped pets (max 2-5 slots), persisted to pets.json                                                                                                                  |
+| `multiRollResults`   | `StateFlow<List<RollResult>>`                     | Results from last multi-roll batch (empty for single roll)                                                                                                                     |
+| `selectedResultIndex`| `StateFlow<Int>`                                  | Index of pet currently shown in PET_DETAIL during multi-roll                                                                                                                   |
+| `miniGameSettings`   | `StateFlow<MiniGameSettings>`                     | Auto-sell preferences and roll count selector, persisted to pets.json                                                                                                          |
+| `speciesTierCounts`  | `StateFlow<Map<String, Int>>`                     | Pet index: "speciesId_tier" → count ever obtained (rolls + fuses + auto-sells)                                                                                                 |
 
 | Function                                            | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `loadData()`                                        | Reads full `StorageData` via `StorageManager.loadFullData()`, loads exercises as-is (no reclassification), runs XP bootstrap on first load (computes total XP from all entries and persists), migrates old workout history sessions (`xpEarned == 0L`) by matching session exercises to exercises and computing XP per completed set, updates all 19 state flows (exercises, goals, weightEntries, appSettings, restDays, runEntries, runningPRs, workoutPresets, activeSession, workoutHistory, totalXp, petInventory, totalRolls, rollsSinceEpicOrAbove, rollsSinceLegendary, rollsSinceMythical, lastDiceRollTimestamp, coins, petUpgrades, equippedPetIds) + syncs `SoundEngine.volume` |
+| `loadData()`                                        | Reads full `StorageData` via `StorageManager.loadFullData()`, loads exercises as-is (no reclassification), runs XP bootstrap on first load (computes total XP from all entries and persists), migrates old workout history sessions (`xpEarned == 0L`) by matching session exercises to exercises and computing XP per completed set, updates all 23 state flows (exercises, goals, weightEntries, appSettings, restDays, runEntries, runningPRs, workoutPresets, activeSession, workoutHistory, totalXp, petInventory, totalRolls, rollsSinceEpicOrAbove, rollsSinceLegendary, rollsSinceMythical, lastDiceRollTimestamp, coins, petUpgrades, equippedPetIds, multiRollResults, miniGameSettings, speciesTierCounts) + syncs `SoundEngine.volume` |
 | `saveData()`                                        | Writes exercises + goals + weight entries to `StorageManager.saveData()` (private)                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `addExercise(exercise)`                             | Appends with auto-incremented `sortOrder` within the same pin group, then saves. Uses the difficulty from the Exercise constructor (set by AddExerciseScreen). |
 | `renameExercise(exerciseId, newName)`               | Updates exercise name and cascades to goals (exerciseId match), workout presets (exerciseName string match), active session, and workout history. Saves all changes. |
@@ -1515,7 +1572,15 @@ Extends `AndroidViewModel(application)` for app context access.
 | `unequipPet(petId: String)`                          | Removes pet ID from `_equippedPetIds`. Saves to pets.json.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `petXpMultiplier(): Double`                          | Returns 1.0 + sum of (pet.xpMultiplier() - 1.0) for each equipped pet (additive stacking). Used as multiplicand in logEntry(), finishWorkout(), and rollDice() coin awards. |
 | `maxEquipSlots(): Int`                               | Returns 2 + upgrade level of EQUIP_SLOTS (max 5).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `clearPetData()`                                     | Resets pet inventory, coins, upgrades, rolls, pity counters, equipped pets to defaults. Saves to pets.json.                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `clearPetData()`                                     | Resets pet inventory, coins, upgrades, rolls, pity counters, equipped pets to defaults. Saves to pets.json.                                                                                                                                                                                                                                                                                                                                                                                      |
+| `buyDice(typeId, quantity)`                           | Deducts coins (cost × quantity), adds SpecialDice with quantity to diceInventory. Saves to pets.json. Collapses duplicates via `collapseDiceInventory()`.                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `useDiceByType(typeId, count)`                        | Removes `count` rolls from active dice effects of matching type. If a queue entry has `rollsRemaining > count`, decrements in-place; otherwise removes entry entirely. Saves to pets.json.                                                                                                                                                                                                                                                                                                                                                                        |
+| `getEffectiveRollCount(): Int`                        | If selectedRollCount > 0, returns min(chosen, maxUnlocked); else returns maxUnlocked. Uses `_miniGameSettings.value.selectedRollCount` and `getMultiRollCount()`.                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `rollDiceMultiple(count: Int)`                        | Calls `rollDice()` `count` times, collecting results into `multiRollResults`. Sets `selectedResultIndex = 0`. Used for MULTI_ROLL upgrade. Saves to pets.json once after batch.                                                                                                                                                                                                                                                                                                                                                                                  |
+| `getMultiRollCount(): Int`                            | Returns 1 + `getUpgradeLevel(PetUpgrade.MULTI_ROLL)` (Lv0=1, Lv1=2, Lv2=3, Lv3=4...). Capped by MULTI_ROLL upgrade's fixed levels.                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `setAutoSellRarity(rarity, enabled)`                  | Adds or removes rarity from `_miniGameSettings.autoSellRarities`. Saves to pets.json. COMMON and SUPER are excluded (SUPER is never auto-sellable).                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `setSelectedRollCount(count)`                         | Sets `_miniGameSettings.selectedRollCount`. Saves to pets.json.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `incrementSpeciesTierCount(speciesId, tier)`          | Increments the count for `"${speciesId}_${tier}"` in `_speciesTierCounts`. Called in rollDice() (before auto-sell), fusePet(), fuseAllPets(). Saves to pets.json.                                                                                                                                                                                                                                                                                                                                                                                                |
 | `generateAppExportJson(): String`                    | Serializes app-only StorageData (without pet fields) to JSON for APP export.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `generatePetExportJson(): String`                    | Serializes PetStorageData to JSON for PET export.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `importAppData(json: String)`                        | Parses JSON as StorageData, applies REPLACE or MERGE to app state flows, saves to prs.json.                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -1857,6 +1922,16 @@ Deleted in v1.1 (File-Based Import/Export feature). Replaced by `SyncExportScree
 34. **Custom Dice Weighted Distributions** — REFINING, ASCENDANT, and LEGENDARY dice now use `baseChances` (custom weighted rarity distributions) instead of simple min/max filtering. REFINING: RARE 61.7%/EPIC 25%/LEGENDARY 11.1%/MYTHICAL 2.2%. ASCENDANT: EPIC 63.9%/LEGENDARY 25%/MYTHICAL 11.1%. LEGENDARY: LEGENDARY 75%/MYTHICAL 25%. Luck multiplier applies on top; soft pity is skipped for custom-distribution dice; hard pity still overrides. BANISHING and MYTHIC continue using the old `minRarity`/`maxRarity` filter behavior.
 
 35. **Upgrade Cost Cap** — Added `.coerceAtMost(100_000_000L)` to both formula branches in `PetUpgrade.costForLevel()`. All formula-based upgrades (LUCK, COIN_MULTIPLIER, ROLL_SPEED, LUCKY_ROLL) cap at 100M coins per level. Once a level would cost ≥ 100M, every subsequent level costs exactly 100M. EQUIP_SLOTS unchanged (already maxes at 100M for the 3rd slot).
+
+36. **Dice Quantity Stack** — SpecialDice now uses a `quantity: Int` field instead of separate list entries. Multiple same-type dice bought from the shop merge into one entry with combined quantity. `useDiceByType()` decrements quantity in-place (removes entry when quantity hits 0). Added `collapseDiceInventory()` migration that runs on every load — groups by typeId, sums quantity, reduces 230k entries to ~6 entries. O(1) operations instead of O(n).
+
+37. **Pet Index (Pokédex)** — Added `speciesTierCounts: Map<String, Int>` to PetStorageData tracking species+tier combinations ever obtained (key: `"speciesId_tier"`). Counts include auto-sold pets and fusions. `incrementSpeciesTierCount()` called in rollDice() (before auto-sell), fusePet(), fuseAllPets(). Index bootstraps from inventory on first load for existing users. Added `PetIndexScreen` with tier filter pills (NORMAL→RED_MATTER), 4-column grid of all 18 PetCatalog.species sorted by rarity→alphabetical, locked=❓/dimmed, unlocked=emoji+rarity border+×N badge. Pet detail overlay shows star management (non-SUPER) or formula display (SUPER: "1.1 × TIER × BEST_NON_SUPER"). 🖥️ button in DiceRollScreen button row navigates to index. Export/import includes speciesTierCounts.
+
+38. **DiceView Size Reduction** — DiceView shrunk 1.5x: boxSize 93dp (was 140dp), iconSize 48dp (was 72dp), text uses titleMedium (was titleLarge), height spacer 8dp (was 12dp). Dice area height reduced from 220dp to 140dp to give more showcase space. Label "ROLLING..." removed — IDLE and ROLLING share the same visual, only label text changes.
+
+39. **MiniGameSettings** — Added `MiniGameSettings` data class (autoSellRarities: Set<String>, selectedRollCount: Int) to PetStorageData. Added `MiniGameSettingsScreen` as full-screen route with gear icon access from DiceRollScreen title bar. Auto-Sell section: per-rarity checkboxes (SUPER excluded), description "Sold on roll — still shown in showcase". Roll Count section: 1x/2x/3x/5x pill buttons locked by MULTI_ROLL upgrade level. Settings persist to pets.json.
+
+40. **Multi-Roll Restore** — Restored multi-roll support after DiceRollScreen was previously overwritten. Added `multiRollResults: List<RollResult>` and `selectedResultIndex` state. Roll trigger uses `rollDiceMultiple(getEffectiveRollCount())`. MultiRevealView shows all pets in grid (emoji box + name in rarity color + single tier pill per cell, not tappable). "TAP TO DISMISS" removed from RevealView. "TAP A PET TO VIEW" removed from MultiRevealView. Tap-to-detail disabled on multi-reveal cards.
 
 ---
 
