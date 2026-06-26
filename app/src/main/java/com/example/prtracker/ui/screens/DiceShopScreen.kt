@@ -52,16 +52,16 @@ import com.example.prtracker.ui.theme.systemAccentColor
 import com.example.prtracker.viewmodel.PRViewModel
 import java.text.NumberFormat
 
-private fun formatCoins(value: Long): String = when {
-    value >= 1_000_000_000_000L -> String.format("%.1fT", value / 1_000_000_000_000.0)
-    value >= 1_000_000_000L -> String.format("%.1fB", value / 1_000_000_000.0)
-    value >= 100_000_000L   -> "${value / 1_000_000}M"
-    value >= 10_000_000L    -> String.format("%.1fM", value / 1_000_000.0)
-    value >= 1_000_000L     -> "${value / 1_000_000}M"
-    value >= 100_000L       -> "${value / 1_000}K"
-    value >= 10_000L        -> String.format("%.1fK", value / 1_000.0)
-    value >= 1_000L         -> "${value / 1_000}K"
-    else                    -> value.toString()
+private fun formatCoins(value: Long): String {
+    fun f(v: Long, u: Long, s: String) =
+        if (v % u == 0L) "${v / u}$s" else String.format("%.3f$s", v / u.toDouble())
+    return when {
+        value >= 1_000_000_000_000L -> f(value, 1_000_000_000_000L, "T")
+        value >= 1_000_000_000L     -> f(value, 1_000_000_000L, "B")
+        value >= 1_000_000L         -> f(value, 1_000_000L, "M")
+        value >= 1_000L             -> f(value, 1_000L, "K")
+        else                        -> value.toString()
+    }
 }
 
 @Composable
@@ -127,7 +127,7 @@ fun DiceShopScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(SpecialDiceType.entries) { diceType ->
-                    val ownedCount = diceInventory.count { it.typeId == diceType.id }
+                    val ownedCount = diceInventory.find { it.typeId == diceType.id }?.quantity ?: 0
                     DiceShopCard(
                         diceType = diceType,
                         coins = coins,

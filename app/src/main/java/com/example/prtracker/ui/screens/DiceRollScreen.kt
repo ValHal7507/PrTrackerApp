@@ -34,10 +34,12 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.Casino
@@ -96,16 +98,16 @@ import kotlin.math.roundToInt
 
 private enum class DiceRollState { IDLE, ROLLING, REVEAL, PET_DETAIL }
 
-private fun formatCoins(value: Long): String = when {
-    value >= 1_000_000_000_000L -> String.format("%.1fT", value / 1_000_000_000_000.0)
-    value >= 1_000_000_000L -> String.format("%.1fB", value / 1_000_000_000.0)
-    value >= 100_000_000L   -> "${value / 1_000_000}M"
-    value >= 10_000_000L    -> String.format("%.1fM", value / 1_000_000.0)
-    value >= 1_000_000L     -> "${value / 1_000_000}M"
-    value >= 100_000L       -> "${value / 1_000}K"
-    value >= 10_000L        -> String.format("%.1fK", value / 1_000.0)
-    value >= 1_000L         -> "${value / 1_000}K"
-    else                    -> value.toString()
+private fun formatCoins(value: Long): String {
+    fun f(v: Long, u: Long, s: String) =
+        if (v % u == 0L) "${v / u}$s" else String.format("%.3f$s", v / u.toDouble())
+    return when {
+        value >= 1_000_000_000_000L -> f(value, 1_000_000_000_000L, "T")
+        value >= 1_000_000_000L     -> f(value, 1_000_000_000L, "B")
+        value >= 1_000_000L         -> f(value, 1_000_000L, "M")
+        value >= 1_000L             -> f(value, 1_000L, "K")
+        else                        -> value.toString()
+    }
 }
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
@@ -146,7 +148,13 @@ fun DiceRollScreen(
     var lastRolledPet by remember { mutableStateOf<Pet?>(null) }
     var lastRollChances by remember { mutableStateOf<Map<PetRarity, Double>>(emptyMap()) }
     var selectedPetId by remember { mutableStateOf<String?>(null) }
-    val selectedPetForDetail = selectedPetId?.let { id -> petInventory.find { it.id == id } }
+    var multiRollResults by remember { mutableStateOf<List<com.example.prtracker.data.RollResult>>(emptyList()) }
+    var selectedResultIndex by remember { mutableStateOf(0) }
+    val selectedPetForDetail = if (rollState == DiceRollState.PET_DETAIL && multiRollResults.isNotEmpty()) {
+        multiRollResults.getOrNull(selectedResultIndex)?.let { result -> petInventory.find { it.id == result.pet.id } }
+    } else {
+        selectedPetId?.let { id -> petInventory.find { it.id == id } }
+    }
 
     var rotationX by remember { mutableFloatStateOf(0f) }
     var rotationY by remember { mutableFloatStateOf(0f) }
@@ -206,6 +214,19 @@ fun DiceRollScreen(
                     style = MaterialTheme.typography.headlineLarge,
                     fontFamily = FontFamily.Monospace
                 )
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                IconButton(
+                    onClick = { navController.navigate(Routes.MINI_GAME_SETTINGS) },
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Settings",
+                        tint = accent
+                    )
+                }
             }
 
             // ── Stats row (rolls + XP mult on left, coins on right) ──────────
@@ -370,6 +391,21 @@ fun DiceRollScreen(
                         fontFamily = FontFamily.Monospace
                     )
                 }
+
+                Spacer(modifier = Modifier.width(4.dp))
+
+                // Pet index button
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { navController.navigate(Routes.PET_INDEX) }
+                        .background(accent.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
+                        .border(1.dp, accent.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(text = "\uD83D\uDCBB", fontSize = 14.sp)
+                }
             }
 
             // ── Equipped pets row ────────────────────────────────────────────
@@ -486,14 +522,28 @@ fun DiceRollScreen(
                         contentAlignment = Alignment.TopCenter
                     ) {
                         if (rollState == DiceRollState.REVEAL) {
-                            lastRolledPet?.let { pet ->
-                                RevealView(
-                                    pet = pet,
-                                    rarityColor = rarityColor,
+                            if (multiRollResults.size > 1) {
+                                MultiRevealView(
+                                    results = multiRollResults,
                                     accent = accent,
-                                    rollChances = lastRollChances,
-                                    onDismiss = { rollState = DiceRollState.IDLE }
+                                    onDismiss = {
+                                        rollState = DiceRollState.IDLE
+                                        multiRollResults = emptyList()
+                                    }
                                 )
+                            } else {
+                                lastRolledPet?.let { pet ->
+                                    RevealView(
+                                        pet = pet,
+                                        rarityColor = rarityColor,
+                                        accent = accent,
+                                        rollChances = lastRollChances,
+                                        onDismiss = {
+                                            rollState = DiceRollState.IDLE
+                                            multiRollResults = emptyList()
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -502,7 +552,7 @@ fun DiceRollScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(220.dp),
+                            .height(140.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         DiceView(
@@ -531,9 +581,11 @@ fun DiceRollScreen(
         LaunchedEffect(rollState) {
             if (rollState == DiceRollState.ROLLING) {
                 delay(rollDelay)
-                val result = viewModel.rollDice()
-                lastRolledPet = result.pet
-                lastRollChances = result.effectiveChances
+                val count = viewModel.getEffectiveRollCount()
+                val results = viewModel.rollDiceMultiple(count)
+                multiRollResults = results
+                lastRolledPet = results.last().pet
+                lastRollChances = results.last().effectiveChances
                 rollState = DiceRollState.REVEAL
             }
         }
@@ -550,9 +602,11 @@ fun DiceRollScreen(
                     }
                     DiceRollState.REVEAL -> {
                         delay(rollDelay)
-                        val result = viewModel.rollDice()
-                        lastRolledPet = result.pet
-                        lastRollChances = result.effectiveChances
+                        val count = viewModel.getEffectiveRollCount()
+                        val results = viewModel.rollDiceMultiple(count)
+                        multiRollResults = results
+                        lastRolledPet = results.last().pet
+                        lastRollChances = results.last().effectiveChances
                     }
                     DiceRollState.PET_DETAIL -> {
                         viewModel.rollDice()
@@ -607,7 +661,7 @@ private fun DiceView(
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             modifier = Modifier
-                .size(160.dp)
+                .size(93.dp)
                 .then(if (onRoll != null) Modifier.clickable { onRoll() } else Modifier)
                 .shadow(16.dp, RoundedCornerShape(24.dp))
                 .background(diceColor.copy(alpha = if (isRolling) 0.2f else 0.15f), RoundedCornerShape(24.dp))
@@ -652,7 +706,7 @@ private fun DiceView(
                 contentDescription = if (onRoll != null) "Roll Dice" else "Dice",
                 tint = diceColor,
                 modifier = Modifier
-                    .size(80.dp)
+                    .size(48.dp)
                     .then(
                         if (isRolling) Modifier.graphicsLayer {
                             this.rotationX = rotationX
@@ -661,19 +715,108 @@ private fun DiceView(
                     )
             )
         }
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = when {
-                isRolling -> "ROLLING..."
                 rollsLeft > 0 -> "ROLL ($rollsLeft LEFT)"
                 else -> "TAP TO ROLL"
             },
             color = diceColor,
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.titleMedium,
             fontFamily = FontFamily.Monospace
         )
     }
 }
+
+@Composable
+private fun MultiRevealView(
+    results: List<com.example.prtracker.data.RollResult>,
+    accent: Color,
+    onDismiss: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onDismiss() }
+            .padding(horizontal = 16.dp, vertical = 16.dp)
+    ) {
+        Text(
+            text = "${results.size} ROLLS COMPLETE",
+            color = accent,
+            style = MaterialTheme.typography.titleMedium,
+            fontFamily = FontFamily.Monospace
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+
+        val columns = when {
+            results.size <= 3 -> results.size
+            results.size == 4 -> 2
+            else -> 3
+        }
+
+        val rows = (results.size + columns - 1) / columns
+        repeat(rows) { row ->
+            val startIdx = row * columns
+            val endIdx = minOf(startIdx + columns, results.size)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                for (i in startIdx until endIdx) {
+                    val pet = results[i].pet
+                    val rarity = PetRarity.fromName(pet.rarity)
+                    val rarityColor = Color(rarity.colorHex)
+                    val tier = PetTier.fromName(pet.tier)
+                    val tierColor = Color(tier.colorHex)
+                    val isSuper = rarity == PetRarity.SUPER
+
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(if (isSuper) 100.dp else 80.dp)
+                                .shadow(6.dp, RoundedCornerShape(12.dp))
+                                .background(rarityColor.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
+                                .border(1.5.dp, rarityColor, RoundedCornerShape(12.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            val species = PetCatalog.allSpecies.find { it.id == pet.speciesId }
+                            Text(text = species?.emoji ?: "?", fontSize = 32.sp)
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = pet.name,
+                            color = rarityColor,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(tierColor.copy(alpha = 0.2f))
+                                .border(1.dp, tierColor, RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = tier.label,
+                                color = tierColor,
+                                fontSize = 8.sp,
+                                fontFamily = FontFamily.Monospace,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
+            if (row < rows - 1) Spacer(modifier = Modifier.height(8.dp))
+        }
+    }
+}
+
 
 @Composable
 private fun RevealView(
@@ -834,12 +977,5 @@ private fun RevealView(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
-
-        Text(
-            text = "TAP TO DISMISS",
-            color = Color(0xFF6B8CAE),
-            style = MaterialTheme.typography.bodySmall,
-            fontFamily = FontFamily.Monospace
-        )
     }
 }

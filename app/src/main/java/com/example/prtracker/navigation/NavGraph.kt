@@ -39,6 +39,8 @@ import com.example.prtracker.ui.screens.DiceShopScreen
 import com.example.prtracker.ui.screens.DiceInventoryScreen
 import com.example.prtracker.ui.screens.PetUpgradesScreen
 import com.example.prtracker.ui.screens.PetInventoryScreen
+import com.example.prtracker.ui.screens.MiniGameSettingsScreen
+import com.example.prtracker.ui.screens.PetIndexScreen
 import com.example.prtracker.viewmodel.PRViewModel
 
 object Routes {
@@ -74,6 +76,8 @@ object Routes {
     const val PET_INVENTORY = "pet_inventory"
     const val DICE_SHOP = "dice_shop"
     const val DICE_INVENTORY = "dice_inventory"
+    const val MINI_GAME_SETTINGS = "mini_game_settings"
+    const val PET_INDEX = "pet_index"
 
     fun logEntry(exerciseId: String) = "log_entry/$exerciseId"
     fun detail(exerciseId: String) = "detail/$exerciseId"
@@ -324,6 +328,18 @@ fun PrTrackerNavGraph(
         }
         composable(Routes.DICE_INVENTORY) {
             DiceInventoryScreen(
+                navController = navController,
+                viewModel = viewModel
+            )
+        }
+        composable(Routes.MINI_GAME_SETTINGS) {
+            MiniGameSettingsScreen(
+                navController = navController,
+                viewModel = viewModel
+            )
+        }
+        composable(Routes.PET_INDEX) {
+            PetIndexScreen(
                 navController = navController,
                 viewModel = viewModel
             )

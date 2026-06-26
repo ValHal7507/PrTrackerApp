@@ -49,6 +49,14 @@ enum class PetUpgrade(
         baseCost = 1_000_000L,
         costMultiplier = 1.0f,
         fixedCosts = listOf(1_000_000L, 10_000_000L, 100_000_000L)
+    ),
+    MULTI_ROLL(
+        id = "multi_roll",
+        displayName = "MULTI ROLL",
+        description = "Roll multiple dice at once",
+        baseCost = 0L,
+        costMultiplier = 1.0f,
+        fixedCosts = listOf(1_000_000L, 100_000_000L, 10_000_000_000L)
     );
 
     open fun costForLevel(currentLevel: Int): Long {
@@ -65,5 +73,11 @@ enum class PetUpgrade(
 
     companion object {
         fun fromId(id: String): PetUpgrade? = entries.find { it.id == id }
+        fun multiRollCount(level: Int): Int = when (level) {
+            1 -> 2
+            2 -> 3
+            3 -> 5
+            else -> 1
+        }
     }
 }

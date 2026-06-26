@@ -34,18 +34,25 @@ fun Pet.xpMultiplier(inventory: List<Pet>? = null): Float {
             .maxOfOrNull { it.xpMultiplier(list) }
             ?: 1.0f
         val tierMult = PetTier.fromName(tier).xpMult
-        return 1.5f * tierMult * bestNonSuper
+        return 1.1f * tierMult * bestNonSuper
     }
     val rarityMult = rarity.baseXpMult
     val tierMult = PetTier.fromName(tier).xpMult
-    val starMult = 1.0f + (stars - 1) * 0.01f
+    val starMult = 1.0f + (stars - 1) * 0.05f
     return rarityMult * tierMult * starMult
 }
 
 data class RollResult(
     val pet: Pet,
     val effectiveChances: Map<PetRarity, Double>,
-    val isLuckyRoll: Boolean = false
+    val isLuckyRoll: Boolean = false,
+    val wasSold: Boolean = false
+)
+
+@Immutable
+data class MiniGameSettings(
+    val autoSellRarities: Set<String> = emptySet(),
+    val selectedRollCount: Int = 0
 )
 
 enum class PetTier(val label: String, val colorHex: Long, val order: Int, val coinMultiplier: Int, val xpMult: Float) {
@@ -69,7 +76,7 @@ enum class PetRarity(val label: String, val dropChance: Double, val colorHex: Lo
     EPIC("EPIC", 0.040, 0xFFAA44FF, 1500L, 1.20f),
     LEGENDARY("LEGENDARY", 0.005, 0xFFFFD700, 5000L, 1.35f),
     MYTHICAL("MYTHICAL", 0.001, 0xFFFF4444, 15000L, 1.50f),
-    SUPER("SUPER", 0.0, 0xFF001B3D, 1_000_000_000_000L, 1.0f);
+    SUPER("SUPER", 0.0, 0xFF001B3D, 100_000_000_000L, 1.0f);
 
     companion object {
         fun fromName(name: String): PetRarity =
@@ -117,7 +124,7 @@ object PetCatalog {
         PetSpecies("void_01", "Void Walker", PetRarity.MYTHICAL, "\u2B50"),
         PetSpecies("cosmos_01", "Cosmos Drake", PetRarity.MYTHICAL, "\uD83C\uDF0C"),
 
-        // SUPER (1 in 10,000 — handled specially)
+        // SUPER (1 in 100,000 — handled specially)
         PetSpecies("super_dog_01", "Rex", PetRarity.SUPER, "\uD83D\uDC15"),
         PetSpecies("super_dog_02", "Buddy", PetRarity.SUPER, "\uD83D\uDC36")
     )

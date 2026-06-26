@@ -63,7 +63,7 @@ fun DiceInventoryScreen(
     val diceInventory by viewModel.diceInventory.collectAsState()
     val accent = LocalAppearance.current.systemAccentColor
     val grouped = remember(diceInventory) {
-        diceInventory.groupBy { it.typeId }.mapValues { it.value.size }
+        diceInventory.associate { it.typeId to it.quantity }
     }
     val sortedEntries = remember(grouped) {
         grouped.entries.toList().sortedBy { (typeId, _) ->
@@ -94,7 +94,7 @@ fun DiceInventoryScreen(
                     )
                 }
                 Text(
-                    text = "DICE INVENTORY (${diceInventory.size})",
+                    text = "DICE INVENTORY (${diceInventory.sumOf { it.quantity }})",
                     color = accent,
                     style = MaterialTheme.typography.headlineMedium,
                     fontFamily = FontFamily.Monospace

@@ -89,7 +89,7 @@ enum class SpecialDiceType(
     SUPER_DICE(
         id = "super_dice",
         displayName = "SUPER DICE",
-        description = "Guarantees a SUPER rarity pet — cosmic tier, 1 in 10,000 on demand",
+        description = "Guarantees a SUPER rarity pet — cosmic tier, 1 in 100,000 on demand",
         price = 1_000_000_000_000L,
         rollsCount = 1,
         minRarity = PetRarity.SUPER,
@@ -110,6 +110,7 @@ enum class SpecialDiceType(
 data class SpecialDice(
     val id: String = UUID.randomUUID().toString(),
     val typeId: String = "",
+    val quantity: Int = 1,
     val obtainedAt: Long = System.currentTimeMillis()
 ) {
     val diceType: SpecialDiceType? get() = SpecialDiceType.fromId(typeId)

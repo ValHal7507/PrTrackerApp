@@ -87,16 +87,28 @@ internal enum class InventorySortMode(val label: String) {
     TYPE("TYPE"), RARITY("RARITY"), VALUE("VALUE"), XP("XP")
 }
 
-private fun formatCoins(value: Long): String = when {
-    value >= 1_000_000_000_000L -> String.format("%.1fT", value / 1_000_000_000_000.0)
-    value >= 1_000_000_000L -> String.format("%.1fB", value / 1_000_000_000.0)
-    value >= 100_000_000L   -> "${value / 1_000_000}M"
-    value >= 10_000_000L    -> String.format("%.1fM", value / 1_000_000.0)
-    value >= 1_000_000L     -> "${value / 1_000_000}M"
-    value >= 100_000L       -> "${value / 1_000}K"
-    value >= 10_000L        -> String.format("%.1fK", value / 1_000.0)
-    value >= 1_000L         -> "${value / 1_000}K"
-    else                    -> value.toString()
+private fun formatCoins(value: Long): String {
+    fun f(v: Long, u: Long, s: String) =
+        if (v % u == 0L) "${v / u}$s" else String.format("%.3f$s", v / u.toDouble())
+    return when {
+        value >= 1_000_000_000_000L -> f(value, 1_000_000_000_000L, "T")
+        value >= 1_000_000_000L     -> f(value, 1_000_000_000L, "B")
+        value >= 1_000_000L         -> f(value, 1_000_000L, "M")
+        value >= 1_000L             -> f(value, 1_000L, "K")
+        else                        -> value.toString()
+    }
+}
+
+private fun formatCoin1(value: Long): String {
+    fun f(v: Long, u: Long, s: String) =
+        if (v % u == 0L) "${v / u}$s" else String.format("%.1f$s", v / u.toDouble())
+    return when {
+        value >= 1_000_000_000_000L -> f(value, 1_000_000_000_000L, "T")
+        value >= 1_000_000_000L     -> f(value, 1_000_000_000L, "B")
+        value >= 1_000_000L         -> f(value, 1_000_000L, "M")
+        value >= 1_000L             -> f(value, 1_000L, "K")
+        else                        -> value.toString()
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -336,6 +348,7 @@ fun PetInventoryScreen(
                         viewModel.fusePet(selectedPet.id)
                         selectedPetId = null
                     },
+                    coinMultiplier = viewModel.coinMultiplier(),
                     onSell = {
                         viewModel.sellPet(selectedPet.id)
                         selectedPetId = null
@@ -407,9 +420,12 @@ fun PetInventoryScreen(
                     val selectableSelected = selectedPetIds.count { id ->
                         petInventory.find { it.id == id }?.isFavorited != true
                     }
-                    val totalValue = selectedPetIds.sumOf { id ->
-                        petInventory.find { it.id == id }?.coinValue()?.toLong() ?: 0L
+                    val mult = viewModel.coinMultiplier()
+                    val selectedPets = selectedPetIds.mapNotNull { id -> petInventory.find { it.id == id } }
+                    val (superSelected, normalSelected) = selectedPets.partition {
+                        com.example.prtracker.data.PetRarity.fromName(it.rarity) == com.example.prtracker.data.PetRarity.SUPER
                     }
+                    val totalValue = superSelected.sumOf { it.coinValue() } + (normalSelected.sumOf { it.coinValue().toLong() } * mult).toLong()
                     var showMultiSellDialog by remember { mutableStateOf(false) }
                     Row(
                         modifier = Modifier
@@ -573,7 +589,10 @@ fun PetInventoryScreen(
     // ── Sell-all confirmation dialog ─────────────────────────────────────────
     if (showSellAllDialog) {
         val unfavorited = petInventory.filter { !it.isFavorited }
-        val totalValue = unfavorited.sumOf { it.coinValue().toLong() }
+        val (superSell, normalSell) = unfavorited.partition {
+            com.example.prtracker.data.PetRarity.fromName(it.rarity) == com.example.prtracker.data.PetRarity.SUPER
+        }
+        val totalValue = superSell.sumOf { it.coinValue() } + (normalSell.sumOf { it.coinValue().toLong() } * viewModel.coinMultiplier()).toLong()
         AlertDialog(
             onDismissRequest = { showSellAllDialog = false },
             containerColor = Color(0xFF0D1526),
@@ -676,6 +695,7 @@ internal fun PetDetailView(
     accent: Color,
     isEquipped: Boolean,
     canEquip: Boolean,
+    coinMultiplier: Float = 1.0f,
     onEquip: () -> Unit,
     onUnequip: () -> Unit,
     onFuse: () -> Unit,
@@ -868,12 +888,15 @@ internal fun PetDetailView(
                     containerColor = Color(0xFFFF4444).copy(alpha = 0.15f)
                 )
             ) {
+                val sellCoin = if (com.example.prtracker.data.PetRarity.fromName(pet.rarity) == com.example.prtracker.data.PetRarity.SUPER)
+                    pet.coinValue()
+                else
+                    (pet.coinValue().toLong() * coinMultiplier).toLong()
                 Text(
-                    text = "SELL ${formatCoins(pet.coinValue().toLong())}",
+                    text = "SELL ${formatCoin1(sellCoin)}",
                     color = Color(0xFFFF4444),
                     style = MaterialTheme.typography.titleSmall,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 1
+                    fontFamily = FontFamily.Monospace
                 )
             }
 
@@ -890,7 +913,12 @@ internal fun PetDetailView(
                     },
                     text = {
                         Text(
-                            text = "You will receive ${formatCoins(pet.coinValue().toLong())} coins.",
+                            text = "You will receive ${formatCoins(
+                                if (com.example.prtracker.data.PetRarity.fromName(pet.rarity) == com.example.prtracker.data.PetRarity.SUPER)
+                                    pet.coinValue()
+                                else
+                                    (pet.coinValue().toLong() * coinMultiplier).toLong()
+                            )} coins.",
                             color = Color(0xFF6B8CAE),
                             fontFamily = FontFamily.Monospace
                         )

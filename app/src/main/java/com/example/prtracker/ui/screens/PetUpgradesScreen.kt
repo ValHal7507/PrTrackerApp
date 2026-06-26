@@ -43,16 +43,16 @@ import com.example.prtracker.ui.theme.LocalAppearance
 import com.example.prtracker.ui.theme.systemAccentColor
 import com.example.prtracker.viewmodel.PRViewModel
 
-private fun formatCoins(value: Long): String = when {
-    value >= 1_000_000_000_000L -> String.format("%.1fT", value / 1_000_000_000_000.0)
-    value >= 1_000_000_000L -> String.format("%.1fB", value / 1_000_000_000.0)
-    value >= 100_000_000L   -> "${value / 1_000_000}M"
-    value >= 10_000_000L    -> String.format("%.1fM", value / 1_000_000.0)
-    value >= 1_000_000L     -> "${value / 1_000_000}M"
-    value >= 100_000L       -> "${value / 1_000}K"
-    value >= 10_000L        -> String.format("%.1fK", value / 1_000.0)
-    value >= 1_000L         -> "${value / 1_000}K"
-    else                    -> value.toString()
+private fun formatCoins(value: Long): String {
+    fun f(v: Long, u: Long, s: String) =
+        if (v % u == 0L) "${v / u}$s" else String.format("%.3f$s", v / u.toDouble())
+    return when {
+        value >= 1_000_000_000_000L -> f(value, 1_000_000_000_000L, "T")
+        value >= 1_000_000_000L     -> f(value, 1_000_000_000L, "B")
+        value >= 1_000_000L         -> f(value, 1_000_000L, "M")
+        value >= 1_000L             -> f(value, 1_000L, "K")
+        else                        -> value.toString()
+    }
 }
 
 @Composable
@@ -264,6 +264,11 @@ private fun UpgradeCard(
                 }
                 PetUpgrade.COIN_MULTIPLIER -> "Coins: ${"%.1f".format(1.0 + currentLevel * 0.20)}x per roll (+0.20x per level)"
                 PetUpgrade.EQUIP_SLOTS -> "Equipped: $equippedCount/${currentLevel + 2} slots used"
+                PetUpgrade.MULTI_ROLL -> {
+                    val currentRolls = com.example.prtracker.data.PetUpgrade.multiRollCount(currentLevel)
+                    if (currentLevel >= 3) "MAX: ${currentRolls}x dice per roll"
+                    else "Currently: ${currentRolls}x dice \u2192 Next: ${com.example.prtracker.data.PetUpgrade.multiRollCount(currentLevel + 1)}x dice"
+                }
             }
             Text(
                 text = effectText,

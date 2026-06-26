@@ -127,50 +127,74 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
     private val _equippedPetIds = MutableStateFlow<List<String>>(emptyList())
     val equippedPetIds: StateFlow<List<String>> = _equippedPetIds
 
+    private val _miniGameSettings = MutableStateFlow(com.example.prtracker.data.MiniGameSettings())
+    val miniGameSettings: StateFlow<com.example.prtracker.data.MiniGameSettings> = _miniGameSettings
+
     private val _diceInventory = MutableStateFlow<List<com.example.prtracker.data.SpecialDice>>(emptyList())
     val diceInventory: StateFlow<List<com.example.prtracker.data.SpecialDice>> = _diceInventory
 
     private val _activeDiceEffects = MutableStateFlow<List<com.example.prtracker.data.ActiveDiceEffect>>(emptyList())
     val activeDiceEffects: StateFlow<List<com.example.prtracker.data.ActiveDiceEffect>> = _activeDiceEffects
 
+    private val _speciesTierCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val speciesTierCounts: StateFlow<Map<String, Int>> = _speciesTierCounts
+
     fun toggleAutoRoll() {
         _autoRoll.value = !_autoRoll.value
     }
 
     fun getDiceCount(typeId: String): Int =
-        _diceInventory.value.count { it.typeId == typeId }
+        _diceInventory.value.find { it.typeId == typeId }?.quantity ?: 0
 
     fun buyDice(typeId: String, count: Int = 1) {
         val diceType = com.example.prtracker.data.SpecialDiceType.fromId(typeId) ?: return
         val totalCost = diceType.price * count
         if (_coins.value < totalCost) return
         _coins.value -= totalCost
-        val newDice = List(count) { com.example.prtracker.data.SpecialDice(typeId = typeId) }
-        _diceInventory.value = _diceInventory.value + newDice
+        val existing = _diceInventory.value.find { it.typeId == typeId }
+        if (existing != null) {
+            _diceInventory.value = _diceInventory.value.map {
+                if (it.id == existing.id) it.copy(quantity = it.quantity + count) else it
+            }
+        } else {
+            _diceInventory.value = _diceInventory.value + com.example.prtracker.data.SpecialDice(typeId = typeId, quantity = count)
+        }
         savePetData()
     }
 
     fun useDice(diceId: String) {
         val dice = _diceInventory.value.find { it.id == diceId } ?: return
-        val diceType = dice.diceType ?: return
-        // Remove from inventory
-        _diceInventory.value = _diceInventory.value.filter { it.id != diceId }
+        useDiceByType(dice.typeId ?: return, 1)
+    }
+
+    fun useDiceByType(typeId: String, count: Int = 1) {
+        if (count <= 0) return
+        val diceType = com.example.prtracker.data.SpecialDiceType.fromId(typeId) ?: return
+        val entry = _diceInventory.value.find { it.typeId == typeId } ?: return
+        val consume = minOf(count, entry.quantity)
+        val totalRolls = diceType.rollsCount * consume
+
+        if (entry.quantity <= consume) {
+            _diceInventory.value = _diceInventory.value.filter { it.id != entry.id }
+        } else {
+            _diceInventory.value = _diceInventory.value.map {
+                if (it.id == entry.id) it.copy(quantity = it.quantity - consume) else it
+            }
+        }
 
         val currentEffects = _activeDiceEffects.value.toMutableList()
-        val existingIndex = currentEffects.indexOfFirst { it.diceTypeId == diceType.id }
+        val existingIndex = currentEffects.indexOfFirst { it.diceTypeId == typeId }
         if (existingIndex >= 0) {
-            // Stack: add rolls to existing effect
             val existing = currentEffects[existingIndex]
             currentEffects[existingIndex] = existing.copy(
-                rollsRemaining = existing.rollsRemaining + diceType.rollsCount,
-                rollsTotal = existing.rollsTotal + diceType.rollsCount
+                rollsRemaining = existing.rollsRemaining + totalRolls,
+                rollsTotal = existing.rollsTotal + totalRolls
             )
         } else {
-            // Create new effect and insert into queue sorted by strength (strongest first)
             val effect = com.example.prtracker.data.ActiveDiceEffect(
-                diceTypeId = diceType.id,
-                rollsRemaining = diceType.rollsCount,
-                rollsTotal = diceType.rollsCount
+                diceTypeId = typeId,
+                rollsRemaining = totalRolls,
+                rollsTotal = totalRolls
             )
             val strengthOrder = com.example.prtracker.data.SpecialDiceType.strengthOrder
             val insertIndex = currentEffects.indexOfFirst { existing ->
@@ -189,12 +213,16 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
         savePetData()
     }
 
-    fun useDiceByType(typeId: String, count: Int = 1) {
-        val diceOfType = _diceInventory.value.filter { it.typeId == typeId }
-        val toUse = diceOfType.take(count)
-        for (dice in toUse) {
-            useDice(dice.id)
-        }
+    private fun collapseDiceInventory() {
+        val inv = _diceInventory.value
+        if (inv.size <= 1) return
+        val collapsed = inv.groupBy { it.typeId }
+            .map { (typeId, entries) ->
+                val first = entries.first()
+                val total = entries.sumOf { it.quantity }
+                first.copy(quantity = total)
+            }
+        _diceInventory.value = collapsed
     }
 
     private fun decrementActiveDiceEffects(): com.example.prtracker.data.SpecialDiceType? {
@@ -247,9 +275,44 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
         savePetData()
     }
 
+    fun coinMultiplier(): Float = 1.0f + getUpgradeLevel(com.example.prtracker.data.PetUpgrade.COIN_MULTIPLIER) * 0.20f
+
+    fun getMultiRollCount(): Int =
+        com.example.prtracker.data.PetUpgrade.multiRollCount(
+            getUpgradeLevel(com.example.prtracker.data.PetUpgrade.MULTI_ROLL)
+        )
+
+    fun getEffectiveRollCount(): Int {
+        val maxUnlocked = getMultiRollCount()
+        val chosen = _miniGameSettings.value.selectedRollCount
+        return if (chosen <= 0) maxUnlocked else minOf(chosen, maxUnlocked)
+    }
+
+    fun setAutoSellRarity(rarity: String, enabled: Boolean) {
+        val current = _miniGameSettings.value.autoSellRarities.toMutableSet()
+        if (enabled) current.add(rarity) else current.remove(rarity)
+        _miniGameSettings.value = _miniGameSettings.value.copy(autoSellRarities = current)
+        savePetData()
+    }
+
+    fun setSelectedRollCount(count: Int) {
+        _miniGameSettings.value = _miniGameSettings.value.copy(selectedRollCount = count)
+        savePetData()
+    }
+
+    private fun incrementSpeciesTierCount(speciesId: String, tier: String) {
+        val key = "${speciesId}_$tier"
+        _speciesTierCounts.value = _speciesTierCounts.value.toMutableMap().apply {
+            put(key, (get(key) ?: 0) + 1)
+        }
+    }
+
     fun sellPet(petId: String) {
         val pet = _petInventory.value.find { it.id == petId } ?: return
-        _coins.value += pet.coinValue()
+        _coins.value += if (com.example.prtracker.data.PetRarity.fromName(pet.rarity) == com.example.prtracker.data.PetRarity.SUPER)
+            pet.coinValue()
+        else
+            (pet.coinValue() * coinMultiplier()).toLong()
         _petInventory.value = _petInventory.value.filter { it.id != petId }
         _equippedPetIds.value = _equippedPetIds.value.filter { it != petId }
         savePetData()
@@ -264,7 +327,12 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
 
     fun sellAllUnfavorited(): Long {
         val unfavorited = _petInventory.value.filter { !it.isFavorited }
-        val totalCoins = unfavorited.sumOf { it.coinValue().toLong() }
+        val (superPets, normalPets) = unfavorited.partition {
+            com.example.prtracker.data.PetRarity.fromName(it.rarity) == com.example.prtracker.data.PetRarity.SUPER
+        }
+        val superValue = superPets.sumOf { it.coinValue() }
+        val normalValue = (normalPets.sumOf { it.coinValue().toLong() } * coinMultiplier()).toLong()
+        val totalCoins = superValue + normalValue
         if (totalCoins > 0) {
             val soldIds = unfavorited.map { it.id }.toSet()
             _coins.value += totalCoins
@@ -277,7 +345,12 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
 
     fun sellPets(ids: Collection<String>): Long {
         val selected = _petInventory.value.filter { it.id in ids && !it.isFavorited }
-        val totalCoins = selected.sumOf { it.coinValue().toLong() }
+        val (superPets, normalPets) = selected.partition {
+            com.example.prtracker.data.PetRarity.fromName(it.rarity) == com.example.prtracker.data.PetRarity.SUPER
+        }
+        val superValue = superPets.sumOf { it.coinValue() }
+        val normalValue = (normalPets.sumOf { it.coinValue().toLong() } * coinMultiplier()).toLong()
+        val totalCoins = superValue + normalValue
         if (totalCoins > 0) {
             val soldIds = selected.map { it.id }.toSet()
             _coins.value += totalCoins
@@ -427,6 +500,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
     fun loadData() {
         viewModelScope.launch {
             val full = storageManager.loadFullData()
+            val petData = storageManager.loadPetData()
             var loadedXp = full.totalXp
             var bootstrapped = full.xpBootstrapped
 
@@ -468,7 +542,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
                 full.petInventory, full.totalRolls, full.rollsSinceEpicOrAbove,
                 full.rollsSinceLegendary, full.rollsSinceMythical, full.lastDiceRollTimestamp,
                 full.coins, full.petUpgrades, full.equippedPetIds,
-                full.diceInventory, full.activeDiceEffects
+                full.diceInventory, full.activeDiceEffects, petData.miniGameSettings
             )
 
             _totalXp.value = loadedXp
@@ -496,7 +570,19 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
             _petUpgrades.value = full.petUpgrades
             _equippedPetIds.value = full.equippedPetIds
             _diceInventory.value = full.diceInventory
+            collapseDiceInventory()
             _activeDiceEffects.value = full.activeDiceEffects
+            _miniGameSettings.value = petData.miniGameSettings
+            _speciesTierCounts.value = petData.speciesTierCounts
+            // Bootstrap: populate counts from existing inventory for first-time users
+            if (_speciesTierCounts.value.isEmpty() && _petInventory.value.isNotEmpty()) {
+                val counts = mutableMapOf<String, Int>()
+                for (p in _petInventory.value) {
+                    val key = "${p.speciesId}_${p.tier}"
+                    counts[key] = (counts[key] ?: 0) + 1
+                }
+                _speciesTierCounts.value = counts
+            }
             SoundEngine.volume = full.settings.soundVolume
         }
     }
@@ -529,7 +615,8 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
                 _petUpgrades.value,
                 _equippedPetIds.value,
                 _diceInventory.value,
-                _activeDiceEffects.value
+                _activeDiceEffects.value,
+                _miniGameSettings.value
             )
         }
     }
@@ -882,7 +969,8 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
                 coins = _coins.value,
                 petUpgrades = _petUpgrades.value,
                 diceInventory = _diceInventory.value,
-                activeDiceEffects = _activeDiceEffects.value
+                activeDiceEffects = _activeDiceEffects.value,
+                miniGameSettings = _miniGameSettings.value
             )
         }
     }
@@ -901,7 +989,9 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
                     petUpgrades = _petUpgrades.value,
                     equippedPetIds = _equippedPetIds.value,
                     diceInventory = _diceInventory.value,
-                    activeDiceEffects = _activeDiceEffects.value
+                    activeDiceEffects = _activeDiceEffects.value,
+                    miniGameSettings = _miniGameSettings.value,
+                    speciesTierCounts = _speciesTierCounts.value
                 )
             )
         }
@@ -1371,7 +1461,8 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
             petUpgrades = _petUpgrades.value,
             equippedPetIds = _equippedPetIds.value,
             diceInventory = _diceInventory.value,
-            activeDiceEffects = _activeDiceEffects.value
+            activeDiceEffects = _activeDiceEffects.value,
+            speciesTierCounts = _speciesTierCounts.value
         )
         return Gson().toJson(petData)
     }
@@ -1401,6 +1492,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
                 _petUpgrades.value = data.petUpgrades
                 _equippedPetIds.value = data.equippedPetIds
                 _diceInventory.value = data.diceInventory
+                collapseDiceInventory()
                 _activeDiceEffects.value = data.activeDiceEffects
                 recalculateTotalXp()
                 _xpBootstrapped = true
@@ -1529,7 +1621,9 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
                     _petUpgrades.value = data.petUpgrades
                     _equippedPetIds.value = data.equippedPetIds
                     _diceInventory.value = data.diceInventory
+                    collapseDiceInventory()
                     _activeDiceEffects.value = data.activeDiceEffects
+                    _speciesTierCounts.value = data.speciesTierCounts
                 }
                 SyncMode.MERGE -> {
                     mergePetDataFromStorage(data)
@@ -1642,6 +1736,12 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
             strengthOrder.indexOfFirst { it.id == effect.diceTypeId }.let { if (it == -1) Int.MAX_VALUE else it }
         }
         _activeDiceEffects.value = existingEffects
+        // Merge species tier counts (sum values)
+        val mergedCounts = _speciesTierCounts.value.toMutableMap()
+        for ((key, value) in data.speciesTierCounts) {
+            mergedCounts[key] = (mergedCounts[key] ?: 0) + value
+        }
+        _speciesTierCounts.value = mergedCounts
     }
 
     fun rollDice(): com.example.prtracker.data.RollResult {
@@ -1662,8 +1762,8 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
         val activeDiceType = activeDice?.diceType
         val isSuperDiceActive = activeDiceType == com.example.prtracker.data.SpecialDiceType.SUPER_DICE
 
-        // SUPER check — flat 1 in 10,000 (unaffected by luck/dice/pity), OR guaranteed if SUPER DICE active
-        if (isSuperDiceActive || Math.random() < 0.0001) {
+        // SUPER check — flat 1 in 100,000 (unaffected by luck/dice/pity), OR guaranteed if SUPER DICE active
+        if (isSuperDiceActive || Math.random() < 0.00001) {
             val speciesList = com.example.prtracker.data.PetCatalog.speciesForRarity(com.example.prtracker.data.PetRarity.SUPER)
             val species = speciesList.random()
             val targetTier = if (isLuckyRoll) {
@@ -1687,7 +1787,8 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
                 rollNumber = _totalRolls.value
             )
             _petInventory.value = _petInventory.value + pet
-            _coins.value += 500_000_000_000L
+            incrementSpeciesTierCount(pet.speciesId, pet.tier)
+            _coins.value += 50_000_000_000L
             _rollsSinceEpicOrAbove.value = 0
             _rollsSinceLegendary.value = 0
             _rollsSinceMythical.value = 0
@@ -1814,6 +1915,8 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
             _petInventory.value = _petInventory.value + pet
         }
 
+        incrementSpeciesTierCount(pet.speciesId, pet.tier)
+
         val upgradeMult = 1.0 + getUpgradeLevel(com.example.prtracker.data.PetUpgrade.COIN_MULTIPLIER) * 0.20
         val petCoinMult = petXpMultiplier().toDouble()
         _coins.value += (pet.coinValue().toLong() * upgradeMult * petCoinMult).toLong()
@@ -1834,8 +1937,22 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
         decrementActiveDiceEffects()
 
         _lastDiceRollTimestamp.value = System.currentTimeMillis()
+
+        // Auto-sell: if rarity is in autoSellRarities, sell immediately
+        val autoSell = _miniGameSettings.value.autoSellRarities
+        if (selectedRarity != com.example.prtracker.data.PetRarity.SUPER && autoSell.contains(pet.rarity)) {
+            val sellValue = (pet.coinValue().toLong() * upgradeMult * petCoinMult).toLong()
+            _coins.value += sellValue
+            _petInventory.value = _petInventory.value.filter { it.id != pet.id }
+            _equippedPetIds.value = _equippedPetIds.value.filter { it != pet.id }
+        }
+
         savePetData()
         return com.example.prtracker.data.RollResult(pet, chancesUsedForRoll, isLuckyRoll)
+    }
+
+    fun rollDiceMultiple(count: Int): List<com.example.prtracker.data.RollResult> {
+        return (0 until count).map { rollDice() }
     }
 
     fun fusePet(petId: String) {
@@ -1868,6 +1985,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
                 if (it.id == pet.id) fusedPet else it
             }
         }
+        incrementSpeciesTierCount(pet.speciesId, nextTier.name)
         _equippedPetIds.value = _equippedPetIds.value.filter { it != petId }
         savePetData()
     }
@@ -1906,6 +2024,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
                 current = current.map { if (it.id == pet.id) fusedPet else it }
                 consumedIds.add(pet.id)
             }
+            incrementSpeciesTierCount(pet.speciesId, nextTier.name)
             fusedCount++
         }
 
