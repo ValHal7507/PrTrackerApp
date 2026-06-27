@@ -168,12 +168,13 @@ fun PetInventoryScreen(
             && PetTier.nextTier(PetTier.fromName(it.tier)) != null
             && PetRarity.fromName(it.rarity) != PetRarity.SUPER
             && PetRarity.fromName(it.rarity) != PetRarity.EXCLUSIVE
+            && PetRarity.fromName(it.rarity) != PetRarity.SECRET
     }
     val equipAvailableCount = petInventory.count { it.id !in equippedPetIds }
 
     val premiumFuseEligible = petInventory.filter {
         val r = PetRarity.fromName(it.rarity)
-        (r == PetRarity.SUPER || r == PetRarity.EXCLUSIVE)
+        (r == PetRarity.SUPER || r == PetRarity.EXCLUSIVE || r == PetRarity.SECRET)
             && PetTier.nextTier(PetTier.fromName(it.tier)) != null
     }
     val hasPremiumFuseGroup = premiumFuseEligible.groupBy { "${it.speciesId}_${it.tier}" }
@@ -433,7 +434,7 @@ fun PetInventoryScreen(
                             if (isPremiumFuseMode) {
                                 val isSelected = pet.id in selectedPremiumFuseIds
                                 val r = PetRarity.fromName(pet.rarity)
-                                val isPremiumEligible = (r == PetRarity.SUPER || r == PetRarity.EXCLUSIVE)
+                                val isPremiumEligible = (r == PetRarity.SUPER || r == PetRarity.EXCLUSIVE || r == PetRarity.SECRET)
                                     && PetTier.nextTier(PetTier.fromName(pet.tier)) != null
                                 PetCollectionCard(
                                     pet = pet,
@@ -496,7 +497,9 @@ fun PetInventoryScreen(
                     val selectedPets = selectedPetIds.mapNotNull { id -> petInventory.find { it.id == id } }
                     val (premiumSelected, normalSelected) = selectedPets.partition {
                         val r = com.example.prtracker.data.PetRarity.fromName(it.rarity)
-                        r == com.example.prtracker.data.PetRarity.SUPER || r == com.example.prtracker.data.PetRarity.EXCLUSIVE
+                        r == com.example.prtracker.data.PetRarity.SUPER ||
+                            r == com.example.prtracker.data.PetRarity.EXCLUSIVE ||
+                            r == com.example.prtracker.data.PetRarity.SECRET
                     }
                     val totalValue = premiumSelected.sumOf { it.coinValue() } + (normalSelected.sumOf { it.coinValue().toLong() } * mult).toLong()
                     var showMultiSellDialog by remember { mutableStateOf(false) }
@@ -724,7 +727,9 @@ fun PetInventoryScreen(
         val unfavorited = petInventory.filter { !it.isFavorited }
         val (premiumSell, normalSell) = unfavorited.partition {
             val r = com.example.prtracker.data.PetRarity.fromName(it.rarity)
-            r == com.example.prtracker.data.PetRarity.SUPER || r == com.example.prtracker.data.PetRarity.EXCLUSIVE
+            r == com.example.prtracker.data.PetRarity.SUPER ||
+                r == com.example.prtracker.data.PetRarity.EXCLUSIVE ||
+                r == com.example.prtracker.data.PetRarity.SECRET
         }
         val totalValue = premiumSell.sumOf { it.coinValue() } + (normalSell.sumOf { it.coinValue().toLong() } * viewModel.coinMultiplier()).toLong()
         AlertDialog(
@@ -777,6 +782,7 @@ fun PetInventoryScreen(
                 && PetTier.nextTier(PetTier.fromName(it.tier)) != null
                 && PetRarity.fromName(it.rarity) != PetRarity.SUPER
                 && PetRarity.fromName(it.rarity) != PetRarity.EXCLUSIVE
+                && PetRarity.fromName(it.rarity) != PetRarity.SECRET
         }
         AlertDialog(
             onDismissRequest = { showFuseAllDialog = false },
@@ -902,13 +908,14 @@ internal fun PetDetailView(
 ) {
     val isSuper = PetRarity.fromName(pet.rarity) == PetRarity.SUPER
     val isExclusive = PetRarity.fromName(pet.rarity) == PetRarity.EXCLUSIVE
-    val isPremium = isSuper || isExclusive
+    val isSecret = PetRarity.fromName(pet.rarity) == PetRarity.SECRET
+    val isPremium = isSuper || isExclusive || isSecret
     val tier = remember(pet.tier) { PetTier.fromName(pet.tier) }
     val tierColor = Color(tier.colorHex)
     val rarityColor = Color(PetRarity.fromName(pet.rarity).colorHex)
     val species = PetCatalog.allSpecies.find { it.id == pet.speciesId }
     val nextTier = remember(tier) { PetTier.nextTier(tier) }
-    val canFuse = pet.stars >= 5 && nextTier != null && !isSuper && !isExclusive
+    val canFuse = pet.stars >= 5 && nextTier != null && !isSuper && !isExclusive && !isSecret
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -971,7 +978,7 @@ internal fun PetDetailView(
             }
         }
 
-        if (!isSuper && !isExclusive) {
+            if (!isSuper && !isExclusive && !isSecret) {
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
@@ -1087,7 +1094,10 @@ internal fun PetDetailView(
                     containerColor = Color(0xFFFF4444).copy(alpha = 0.15f)
                 )
             ) {
-                val sellCoin = if (com.example.prtracker.data.PetRarity.fromName(pet.rarity) == com.example.prtracker.data.PetRarity.SUPER || com.example.prtracker.data.PetRarity.fromName(pet.rarity) == com.example.prtracker.data.PetRarity.EXCLUSIVE)
+                val isSellPremium = com.example.prtracker.data.PetRarity.fromName(pet.rarity) == com.example.prtracker.data.PetRarity.SUPER ||
+                    com.example.prtracker.data.PetRarity.fromName(pet.rarity) == com.example.prtracker.data.PetRarity.EXCLUSIVE ||
+                    com.example.prtracker.data.PetRarity.fromName(pet.rarity) == com.example.prtracker.data.PetRarity.SECRET
+                val sellCoin = if (isSellPremium)
                     pet.coinValue()
                 else
                     (pet.coinValue().toLong() * coinMultiplier).toLong()
@@ -1113,7 +1123,7 @@ internal fun PetDetailView(
                     text = {
                         Text(
                             text = "You will receive ${formatCoins(
-                                if (com.example.prtracker.data.PetRarity.fromName(pet.rarity) == com.example.prtracker.data.PetRarity.SUPER || com.example.prtracker.data.PetRarity.fromName(pet.rarity) == com.example.prtracker.data.PetRarity.EXCLUSIVE)
+                                if (com.example.prtracker.data.PetRarity.fromName(pet.rarity) == com.example.prtracker.data.PetRarity.SUPER || com.example.prtracker.data.PetRarity.fromName(pet.rarity) == com.example.prtracker.data.PetRarity.EXCLUSIVE || com.example.prtracker.data.PetRarity.fromName(pet.rarity) == com.example.prtracker.data.PetRarity.SECRET)
                                     pet.coinValue()
                                 else
                                     (pet.coinValue().toLong() * coinMultiplier).toLong()
@@ -1186,10 +1196,16 @@ internal fun PetCollectionCard(
 
     val isSuper = rarity == PetRarity.SUPER
     val isExclusive = rarity == PetRarity.EXCLUSIVE
-    val isPremium = isSuper || isExclusive
+    val isSecret = rarity == PetRarity.SECRET
+    val isPremium = isSuper || isExclusive || isSecret
     val superColor = Color(PetRarity.SUPER.colorHex)
     val exclusiveColor = Color(PetRarity.EXCLUSIVE.colorHex)
-    val premiumColor = if (isExclusive) exclusiveColor else superColor
+    val secretColor = Color(PetRarity.SECRET.colorHex)
+    val premiumColor = when {
+        isSecret -> secretColor
+        isExclusive -> exclusiveColor
+        else -> superColor
+    }
 
     val bgTint = when {
         isPremium             -> premiumColor.copy(alpha = 0.12f)
@@ -1340,7 +1356,7 @@ internal fun PetCollectionCard(
             verticalArrangement = Arrangement.Center
         ) {
             Text(text = species?.emoji ?: "?", fontSize = 28.sp)
-            if (!isSuper && !isExclusive) {
+        if (!isSuper && !isExclusive && !isSecret) {
                 Text(
                     text = buildString {
                         repeat(pet.stars) { append("\u2605") }

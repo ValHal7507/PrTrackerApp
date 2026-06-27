@@ -18,7 +18,7 @@ data class Pet(
 
 fun Pet.coinValue(): Long {
     val rarity = PetRarity.fromName(rarity)
-    if (rarity == PetRarity.SUPER || rarity == PetRarity.EXCLUSIVE) {
+    if (rarity == PetRarity.SUPER || rarity == PetRarity.EXCLUSIVE || rarity == PetRarity.SECRET) {
         return (rarity.baseCoins * PetTier.fromName(tier).coinMultiplier).toLong()
     }
     val multiplier = PetTier.fromName(tier).coinMultiplier
@@ -30,7 +30,7 @@ fun Pet.xpMultiplier(inventory: List<Pet>? = null): Float {
     if (rarity == PetRarity.SUPER) {
         val list = inventory ?: return 1.0f
         val bestNonSuper = list
-            .filter { PetRarity.fromName(it.rarity) != PetRarity.SUPER && PetRarity.fromName(it.rarity) != PetRarity.EXCLUSIVE }
+            .filter { PetRarity.fromName(it.rarity) != PetRarity.SUPER && PetRarity.fromName(it.rarity) != PetRarity.EXCLUSIVE && PetRarity.fromName(it.rarity) != PetRarity.SECRET }
             .maxOfOrNull { it.xpMultiplier(list) }
             ?: 1.0f
         val tierMult = PetTier.fromName(tier).xpMult
@@ -39,11 +39,20 @@ fun Pet.xpMultiplier(inventory: List<Pet>? = null): Float {
     if (rarity == PetRarity.EXCLUSIVE) {
         val list = inventory ?: return 1.0f
         val bestNonSuper = list
-            .filter { PetRarity.fromName(it.rarity) != PetRarity.SUPER && PetRarity.fromName(it.rarity) != PetRarity.EXCLUSIVE }
+            .filter { PetRarity.fromName(it.rarity) != PetRarity.SUPER && PetRarity.fromName(it.rarity) != PetRarity.EXCLUSIVE && PetRarity.fromName(it.rarity) != PetRarity.SECRET }
             .maxOfOrNull { it.xpMultiplier(list) }
             ?: 1.0f
         val tierMult = PetTier.fromName(tier).xpMult
         return 2.0f * tierMult * bestNonSuper
+    }
+    if (rarity == PetRarity.SECRET) {
+        val list = inventory ?: return 1.0f
+        val bestNonPremium = list
+            .filter { PetRarity.fromName(it.rarity) != PetRarity.SUPER && PetRarity.fromName(it.rarity) != PetRarity.EXCLUSIVE && PetRarity.fromName(it.rarity) != PetRarity.SECRET }
+            .maxOfOrNull { it.xpMultiplier(list) }
+            ?: 1.0f
+        val tierMult = PetTier.fromName(tier).xpMult
+        return 5.0f * tierMult * bestNonPremium
     }
     val species = PetCatalog.allSpecies.find { it.id == speciesId }
     val rarityMult = species?.xpMult ?: rarity.baseXpMult
@@ -63,6 +72,7 @@ data class RollResult(
 @Immutable
 data class MiniGameSettings(
     val autoSellRarities: Set<String> = emptySet(),
+    val freezeRarities: Set<String> = setOf("EXCLUSIVE", "SECRET"),
     val selectedRollCount: Int = 0
 )
 
@@ -89,7 +99,8 @@ enum class PetRarity(val label: String, val dropChance: Double, val colorHex: Lo
     MYTHICAL("MYTHICAL", 0.001, 0xFFFF4444, 15000L, 1.50f),
     DIVINE("DIVINE", 0.0005, 0xFFFFE44D, 50000L, 1.60f),
     SUPER("SUPER", 0.0, 0xFF001B3D, 100_000_000_000L, 1.0f),
-    EXCLUSIVE("EXCLUSIVE", 0.0, 0xFF7B35C1, 100_000_000_000_000L, 2.0f);
+    EXCLUSIVE("EXCLUSIVE", 0.0, 0xFF7B35C1, 100_000_000_000_000L, 2.0f),
+    SECRET("SECRET", 0.0, 0xFF000000, 5_000_000_000_000_000L, 1.0f);
 
     companion object {
         fun fromName(name: String): PetRarity =
@@ -148,7 +159,11 @@ object PetCatalog {
         PetSpecies("super_dog_02", "Buddy", PetRarity.SUPER, "\uD83D\uDC36"),
 
         // EXCLUSIVE (1 in 1,000,000 — handled specially)
-        PetSpecies("zenith_01", "Zenith", PetRarity.EXCLUSIVE, "\uD83D\uDC09")
+        PetSpecies("zenith_01", "Zenith", PetRarity.EXCLUSIVE, "\uD83D\uDC09"),
+
+        // SECRET (1 in 2,000,000 — handled specially)
+        PetSpecies("ozzy_01", "Ozzy", PetRarity.SECRET, "\uD83E\uDD8A"),
+        PetSpecies("dumbbell_01", "Dumbbell", PetRarity.SECRET, "\uD83D\uDD29")
     )
 
     fun speciesForRarity(rarity: PetRarity): List<PetSpecies> =

@@ -81,7 +81,7 @@ enum class PetUpgrade(
 
     fun maxPurchaseableLevels(fromLevel: Int, coins: Long): Int {
         val maxLvl = maxLevel()
-        val maxPossible = if (maxLvl != null) (maxLvl - fromLevel).coerceAtLeast(0) else 50
+        val maxPossible = if (maxLvl != null) (maxLvl - fromLevel).coerceAtLeast(0) else 9999
         var total = 0L
         var count = 0
         for (i in 0 until maxPossible) {

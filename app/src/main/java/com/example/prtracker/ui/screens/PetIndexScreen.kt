@@ -278,12 +278,13 @@ private fun PetDetailOverlay(
     val tierColor = Color(tier.colorHex)
     val isSuper = species.rarity == PetRarity.SUPER
     val isExclusive = species.rarity == PetRarity.EXCLUSIVE
-    val isPremium = isSuper || isExclusive
+    val isSecret = species.rarity == PetRarity.SECRET
+    val isPremium = isSuper || isExclusive || isSecret
 
-    // Compute best non-SUPER/EXCLUSIVE XP multiplier from inventory
+    // Compute best non-SUPER/EXCLUSIVE/SECRET XP multiplier from inventory
     val bestNonSuperMult = remember(petInventory) {
         petInventory
-            .filter { PetRarity.fromName(it.rarity) != PetRarity.SUPER && PetRarity.fromName(it.rarity) != PetRarity.EXCLUSIVE }
+            .filter { PetRarity.fromName(it.rarity) != PetRarity.SUPER && PetRarity.fromName(it.rarity) != PetRarity.EXCLUSIVE && PetRarity.fromName(it.rarity) != PetRarity.SECRET }
             .maxOfOrNull { it.xpMultiplier(petInventory) } ?: 1.0f
     }
 
@@ -293,6 +294,8 @@ private fun PetDetailOverlay(
             1.1f * tier.xpMult * bestNonSuperMult
         } else if (isExclusive) {
             2.0f * tier.xpMult * bestNonSuperMult
+        } else if (isSecret) {
+            5.0f * tier.xpMult * bestNonSuperMult
         } else {
             val starMult = 1.0f + (selectedStar - 1) * 0.05f
             (species.xpMult ?: species.rarity.baseXpMult) * tier.xpMult * starMult
@@ -431,6 +434,28 @@ private fun PetDetailOverlay(
             )
             Text(
                 text = "2.0 \u00D7 ${String.format("%.2f", tier.xpMult)}(${tier.label}) \u00D7 ${String.format("%.2f", bestNonSuperMult)}(best)",
+                color = grayColor,
+                style = MaterialTheme.typography.bodyMedium,
+                fontFamily = FontFamily.Monospace
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "XP MULTIPLIER: ${String.format("%.2f", xpMultiplier)}\u00D7",
+                color = accent,
+                style = MaterialTheme.typography.titleMedium,
+                fontFamily = FontFamily.Monospace
+            )
+        } else if (isSecret) {
+            // SECRET: show formula breakdown (no stars)
+            Text(
+                text = "XP FORMULA",
+                color = grayColor,
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+            Text(
+                text = "5.0 \u00D7 ${String.format("%.2f", tier.xpMult)}(${tier.label}) \u00D7 ${String.format("%.2f", bestNonSuperMult)}(best)",
                 color = grayColor,
                 style = MaterialTheme.typography.bodyMedium,
                 fontFamily = FontFamily.Monospace

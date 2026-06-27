@@ -61,6 +61,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -130,6 +131,8 @@ fun DiceRollScreen(
     val equippedPetIds by viewModel.equippedPetIds.collectAsState()
     val activeDiceEffects by viewModel.activeDiceEffects.collectAsState()
     val diceInventory by viewModel.diceInventory.collectAsState()
+    val miniGameSettings by viewModel.miniGameSettings.collectAsState()
+    val freezeRarities = remember(miniGameSettings.freezeRarities) { miniGameSettings.freezeRarities }
     val petMult = viewModel.petXpMultiplier()
     val maxSlots = viewModel.maxEquipSlots()
 
@@ -176,6 +179,7 @@ fun DiceRollScreen(
 
     var showRemoveDiceDialog by remember { mutableStateOf<ActiveDiceEffect?>(null) }
     var showRemoveDiceConfirm by remember { mutableStateOf<ActiveDiceEffect?>(null) }
+    var premiumFreezeSeconds by remember { mutableIntStateOf(0) }
 
     val rarityColor = lastRolledPet?.let {
         Color(PetRarity.fromName(it.rarity).colorHex)
@@ -187,6 +191,14 @@ fun DiceRollScreen(
             targetValue = coins.toFloat(),
             animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing)
         )
+    }
+
+    // Premium freeze countdown (5s for SECRET/EXCLUSIVE)
+    LaunchedEffect(premiumFreezeSeconds) {
+        while (premiumFreezeSeconds > 0) {
+            delay(1000L)
+            premiumFreezeSeconds--
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -554,6 +566,7 @@ fun DiceRollScreen(
                                     )
                                 }
                             }
+                            // Premium freeze active — no text, just silent freeze
                         }
                     }
 
@@ -573,7 +586,7 @@ fun DiceRollScreen(
                             activeDiceColor = activeDiceColor,
                             isSuperDice = activeEffectDiceType == SpecialDiceType.SUPER_DICE,
                             rollsLeft = if (activeEffect != null) rollsLeft else 0,
-                            onRoll = if (rollState != DiceRollState.ROLLING) {
+                            onRoll = if (rollState != DiceRollState.ROLLING && premiumFreezeSeconds == 0) {
                                 {
                                     rollState = DiceRollState.ROLLING
                                     rotationX += 720f
@@ -597,6 +610,11 @@ fun DiceRollScreen(
                 lastRollChances = results.last().effectiveChances
                 lastRollDisplayOneInX = results.last().displayOneInX
                 rollState = DiceRollState.REVEAL
+                // Trigger 5s freeze if rolled pet's rarity is in freezeRarities setting
+                val hasPremium = results.any {
+                    freezeRarities.contains(it.pet.rarity)
+                }
+                if (hasPremium) premiumFreezeSeconds = 5
             }
         }
 
@@ -604,13 +622,14 @@ fun DiceRollScreen(
         LaunchedEffect(autoRoll) {
             while (autoRoll) {
                 delay(100)
-                when (rollState) {
-                    DiceRollState.IDLE -> {
+                when {
+                    premiumFreezeSeconds > 0 -> { /* frozen — wait */ }
+                    rollState == DiceRollState.IDLE -> {
                         rollState = DiceRollState.ROLLING
                         rotationX += 720f
                         rotationY += 1080f
                     }
-                    DiceRollState.REVEAL -> {
+                    rollState == DiceRollState.REVEAL -> {
                         delay(rollDelay)
                         val count = viewModel.getEffectiveRollCount()
                         val results = viewModel.rollDiceMultiple(count)
@@ -618,12 +637,17 @@ fun DiceRollScreen(
                         lastRolledPet = results.last().pet
                         lastRollChances = results.last().effectiveChances
                         lastRollDisplayOneInX = results.last().displayOneInX
+                        // Trigger 5s freeze if rolled pet's rarity is in freezeRarities setting
+                        val hasPremium = results.any {
+                            freezeRarities.contains(it.pet.rarity)
+                        }
+                        if (hasPremium) premiumFreezeSeconds = 5
                     }
-                    DiceRollState.PET_DETAIL -> {
+                    rollState == DiceRollState.PET_DETAIL -> {
                         viewModel.rollDice()
                         delay(2000)
                     }
-                    DiceRollState.ROLLING -> { /* wait for animation */ }
+                    rollState == DiceRollState.ROLLING -> { /* wait for animation */ }
                 }
             }
         }
@@ -857,7 +881,7 @@ private fun MultiRevealView(
                     val tier = PetTier.fromName(pet.tier)
                     val tierColor = Color(tier.colorHex)
                     val isSuper = rarity == PetRarity.SUPER
-                    val isPremium = isSuper || rarity == PetRarity.EXCLUSIVE
+                    val isPremium = isSuper || rarity == PetRarity.EXCLUSIVE || rarity == PetRarity.SECRET
 
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally
@@ -917,10 +941,16 @@ private fun RevealView(
 ) {
     val isSuper = PetRarity.fromName(pet.rarity) == PetRarity.SUPER
     val isExclusive = PetRarity.fromName(pet.rarity) == PetRarity.EXCLUSIVE
-    val isPremium = isSuper || isExclusive
+    val isSecret = PetRarity.fromName(pet.rarity) == PetRarity.SECRET
+    val isPremium = isSuper || isExclusive || isSecret
     val superColor = Color(PetRarity.SUPER.colorHex)
     val exclusiveColor = Color(PetRarity.EXCLUSIVE.colorHex)
-    val premiumColor = if (isExclusive) exclusiveColor else superColor
+    val secretColor = Color(PetRarity.SECRET.colorHex)
+    val premiumColor = when {
+        isSecret -> secretColor
+        isExclusive -> exclusiveColor
+        else -> superColor
+    }
     val infiniteTransition = rememberInfiniteTransition(label = "revealSuper")
 
     val revealBoxModifier = if (isPremium) {
@@ -1029,7 +1059,7 @@ private fun RevealView(
             }
         }
 
-        if (!isSuper && !isExclusive) {
+        if (!isSuper && !isExclusive && !isSecret) {
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
@@ -1073,6 +1103,16 @@ private fun RevealView(
             Text(
                 text = "\uD83D\uDC09 BEYOND DIVINE \uD83D\uDC09",
                 color = exclusiveColor,
+                style = MaterialTheme.typography.titleMedium,
+                fontFamily = FontFamily.Monospace
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
+        if (isSecret) {
+            Text(
+                text = "\uD83D\uDD10 ULTRA SECRET \uD83D\uDD10",
+                color = secretColor,
                 style = MaterialTheme.typography.titleMedium,
                 fontFamily = FontFamily.Monospace
             )

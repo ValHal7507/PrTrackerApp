@@ -89,7 +89,7 @@ enum class SpecialDiceType(
     SUPER_DICE(
         id = "super_dice",
         displayName = "SUPER DICE",
-        description = "Guarantees a SUPER rarity pet — 1/1000 chance of EXCLUSIVE",
+        description = "Guarantees a SUPER rarity pet — 1/1000 chance of EXCLUSIVE, 1/200k chance of SECRET",
         price = 1_000_000_000_000L,
         rollsCount = 1,
         minRarity = PetRarity.SUPER,

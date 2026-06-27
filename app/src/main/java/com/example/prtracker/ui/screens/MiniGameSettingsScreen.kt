@@ -121,15 +121,10 @@ fun MiniGameSettingsScreen(
                     val autoSellSet = miniGameSettings.autoSellRarities
 
                     PetRarity.entries
-                        .filter { it != PetRarity.SUPER && it != PetRarity.EXCLUSIVE }
+                        .filter { it != PetRarity.EXCLUSIVE && it != PetRarity.SECRET }
                         .forEach { rarity ->
                             val isOn = autoSellSet.contains(rarity.name)
                             val rarityColor = Color(rarity.colorHex)
-                            val coinHint = when {
-                                rarity.baseCoins >= 1_000_000 -> "${rarity.baseCoins / 1_000_000}M"
-                                rarity.baseCoins >= 1_000 -> "${rarity.baseCoins / 1_000}K"
-                                else -> "${rarity.baseCoins}"
-                            }
 
                             Row(
                                 modifier = Modifier
@@ -166,12 +161,6 @@ fun MiniGameSettingsScreen(
                                     fontFamily = FontFamily.Monospace,
                                     modifier = Modifier.weight(1f)
                                 )
-                                Text(
-                                    text = "$coinHint/sell",
-                                    color = TextSecondary,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = FontFamily.Monospace
-                                )
                                 Spacer(modifier = Modifier.width(12.dp))
                                 // Checkmark box
                                 Box(
@@ -202,36 +191,6 @@ fun MiniGameSettingsScreen(
                             Spacer(modifier = Modifier.height(6.dp))
                         }
 
-                    // SUPER row — always excluded
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0xFF001B3D).copy(alpha = 0.3f))
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(10.dp)
-                                .clip(RoundedCornerShape(50))
-                                .background(Color(PetRarity.SUPER.colorHex))
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = "SUPER",
-                            color = TextSecondary,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(
-                            text = "ALWAYS KEPT",
-                            color = TextSecondary.copy(alpha = 0.6f),
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
                     Spacer(modifier = Modifier.height(6.dp))
                     // EXCLUSIVE row — always excluded
                     Row(
@@ -262,6 +221,131 @@ fun MiniGameSettingsScreen(
                             style = MaterialTheme.typography.bodySmall,
                             fontFamily = FontFamily.Monospace
                         )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    // SECRET row — always excluded
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(PetRarity.SECRET.colorHex).copy(alpha = 0.3f))
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .clip(RoundedCornerShape(50))
+                                .background(Color(PetRarity.SECRET.colorHex))
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "SECRET",
+                            color = TextSecondary,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "ALWAYS KEPT",
+                            color = TextSecondary.copy(alpha = 0.6f),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // ── Freeze Screen section ──────────────────────────────────────
+            GlowingCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text(
+                        text = "FREEZE SCREEN",
+                        color = gold,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Screen freezes for 5 seconds on roll — pause auto-roll",
+                        color = TextSecondary,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    val freezeSet = miniGameSettings.freezeRarities
+
+                    PetRarity.entries.forEach { rarity ->
+                        val isOn = freezeSet.contains(rarity.name)
+                        val rarityColor = Color(rarity.colorHex)
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    if (isOn) gold.copy(alpha = 0.08f)
+                                    else Color.Transparent
+                                )
+                                .border(
+                                    1.dp,
+                                    if (isOn) gold.copy(alpha = 0.3f)
+                                    else Color.Transparent,
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .clickable {
+                                    viewModel.setFreezeRarity(rarity.name, !isOn)
+                                }
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .clip(RoundedCornerShape(50))
+                                    .background(rarityColor)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = rarity.name,
+                                color = Color.White,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .border(
+                                        1.dp,
+                                        if (isOn) gold else TextSecondary.copy(alpha = 0.5f),
+                                        RoundedCornerShape(4.dp)
+                                    )
+                                    .background(
+                                        if (isOn) gold.copy(alpha = 0.2f)
+                                        else Color.Transparent
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isOn) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = gold,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
                     }
                 }
             }

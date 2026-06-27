@@ -171,7 +171,7 @@ private fun UpgradeCard(
     val maxLevel = upgrade.maxLevel()
     val isMaxed = maxLevel != null && currentLevel >= maxLevel
     val maxQuantity = if (isMaxed) 0 else upgrade.maxPurchaseableLevels(currentLevel, coins)
-        .coerceAtMost(if (maxLevel != null) (maxLevel - currentLevel).coerceAtLeast(0) else 50)
+        .coerceAtMost(if (maxLevel != null) (maxLevel - currentLevel).coerceAtLeast(0) else 9999)
 
     var quantityText by remember { mutableStateOf("1") }
     var quantity by remember { mutableIntStateOf(1) }
@@ -294,7 +294,9 @@ private fun UpgradeCard(
                 fontFamily = FontFamily.Monospace
             )
 
-            if (!isMaxed) {
+            val isMultiBuyAvailable = maxLevel == null && upgrade.costForLevel(currentLevel) >= 100_000_000L
+
+    if (!isMaxed) {
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Row(
@@ -302,98 +304,98 @@ private fun UpgradeCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        IconButton(
-                            onClick = {
-                                val new = (quantity - 1).coerceAtLeast(1)
-                                quantity = new
-                                quantityText = new.toString()
-                            },
-                            enabled = quantity > 1,
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(
-                                    if (quantity > 1) accent.copy(alpha = 0.15f)
-                                    else Color.Gray.copy(alpha = 0.1f)
-                                )
+                    if (isMultiBuyAvailable) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Remove,
-                                contentDescription = "Decrease",
-                                tint = if (quantity > 1) accent else Color.Gray,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .width(56.dp)
-                                .height(36.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFF0D1526))
-                                .border(
-                                    width = 1.dp,
-                                    color = accent.copy(alpha = 0.3f),
-                                    shape = RoundedCornerShape(8.dp)
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            BasicTextField(
-                                value = quantityText,
-                                onValueChange = { newText ->
-                                    if (newText.all { it.isDigit() } && newText.length <= 4) {
-                                        syncQuantity(newText)
-                                    }
+                            IconButton(
+                                onClick = {
+                                    val new = (quantity - 1).coerceAtLeast(1)
+                                    quantity = new
+                                    quantityText = new.toString()
                                 },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                singleLine = true,
-                                textStyle = TextStyle(
-                                    color = accent,
-                                    fontSize = 16.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    textAlign = TextAlign.Center
-                                ),
-                                cursorBrush = SolidColor(accent),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-
-                        IconButton(
-                            onClick = {
-                                val new = (quantity + 1).coerceAtMost(maxQuantity.coerceAtLeast(1))
-                                quantity = new
-                                quantityText = new.toString()
-                            },
-                            enabled = quantity < maxQuantity,
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(
-                                    if (quantity < maxQuantity) accent.copy(alpha = 0.15f)
-                                    else Color.Gray.copy(alpha = 0.1f)
+                                enabled = quantity > 1,
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        if (quantity > 1) accent.copy(alpha = 0.15f)
+                                        else Color.Gray.copy(alpha = 0.1f)
+                                    )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Remove,
+                                    contentDescription = "Decrease",
+                                    tint = if (quantity > 1) accent else Color.Gray,
+                                    modifier = Modifier.size(18.dp)
                                 )
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Add,
-                                contentDescription = "Increase",
-                                tint = if (quantity < maxQuantity) accent else Color.Gray,
-                                modifier = Modifier.size(18.dp)
-                            )
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .width(56.dp)
+                                    .height(36.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF0D1526))
+                                    .border(
+                                        width = 1.dp,
+                                        color = accent.copy(alpha = 0.3f),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                BasicTextField(
+                                    value = quantityText,
+                                    onValueChange = { newText ->
+                                        if (newText.all { it.isDigit() } && newText.length <= 4) {
+                                            syncQuantity(newText)
+                                        }
+                                    },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    singleLine = true,
+                                    textStyle = TextStyle(
+                                        color = accent,
+                                        fontSize = 16.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        textAlign = TextAlign.Center
+                                    ),
+                                    cursorBrush = SolidColor(accent),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    val new = (quantity + 1).coerceAtMost(maxQuantity.coerceAtLeast(1))
+                                    quantity = new
+                                    quantityText = new.toString()
+                                },
+                                enabled = quantity < maxQuantity,
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        if (quantity < maxQuantity) accent.copy(alpha = 0.15f)
+                                        else Color.Gray.copy(alpha = 0.1f)
+                                    )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "Increase",
+                                    tint = if (quantity < maxQuantity) accent else Color.Gray,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                         }
                     }
 
-                    if (quantity > 1) {
-                        Text(
-                            text = formatCoins(totalCost),
-                            color = Color(0xFFFFD700),
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
+                    Text(
+                        text = formatCoins(totalCost),
+                        color = Color(0xFFFFD700),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontFamily = FontFamily.Monospace
+                    )
 
                     Button(
                         onClick = { onPurchase(quantity) },
@@ -413,7 +415,7 @@ private fun UpgradeCard(
                     }
                 }
 
-                if (quantity > 1) {
+                if (isMultiBuyAvailable && quantity > 1) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
