@@ -4,6 +4,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.Immutable
 import java.util.UUID
 
+enum class DiceCategory { LUCK, TIER, BURST }
+
 enum class SpecialDiceType(
     val id: String,
     val displayName: String,
@@ -14,7 +16,8 @@ enum class SpecialDiceType(
     val maxRarity: PetRarity,
     val colorHex: Long,
     val emoji: String,
-    val baseChances: Map<PetRarity, Double>? = null
+    val baseChances: Map<PetRarity, Double>? = null,
+    val category: DiceCategory = DiceCategory.LUCK
 ) {
     BANISHING(
         id = "banishing",
@@ -96,13 +99,75 @@ enum class SpecialDiceType(
         maxRarity = PetRarity.SUPER,
         colorHex = 0xFF001B3D,
         emoji = "\uD83D\uDCAB"
+    ),
+    GILDED_DICE(
+        id = "gilded",
+        displayName = "GILDED DICE",
+        description = "Tier modifier — normal rarity, guaranteed GOLDEN+ tier (60% GOLDEN, 25% RAINBOW, 12% DARK_MATTER, 3% RED_MATTER)",
+        price = 50_000_000L,
+        rollsCount = 3,
+        minRarity = PetRarity.COMMON,
+        maxRarity = PetRarity.SECRET,
+        colorHex = 0xFFFFD700,
+        emoji = "\uD83C\uDF1F",
+        category = DiceCategory.TIER
+    ),
+    BURST_100(
+        id = "burst_100",
+        displayName = "BURST DICE (100)",
+        description = "Instant 100 rolls — no coins rewarded",
+        price = 100_000_000L,
+        rollsCount = 100,
+        minRarity = PetRarity.COMMON,
+        maxRarity = PetRarity.SECRET,
+        colorHex = 0xFFFF8C00,
+        emoji = "\u26A1",
+        category = DiceCategory.BURST
+    ),
+    BURST_1000(
+        id = "burst_1000",
+        displayName = "BURST DICE (1K)",
+        description = "Instant 1,000 rolls — no coins rewarded",
+        price = 1_000_000_000L,
+        rollsCount = 1000,
+        minRarity = PetRarity.COMMON,
+        maxRarity = PetRarity.SECRET,
+        colorHex = 0xFFFF8C00,
+        emoji = "\u26A1",
+        category = DiceCategory.BURST
+    ),
+    BURST_10000(
+        id = "burst_10000",
+        displayName = "BURST DICE (10K)",
+        description = "Instant 10,000 rolls — no coins rewarded",
+        price = 10_000_000_000L,
+        rollsCount = 10000,
+        minRarity = PetRarity.COMMON,
+        maxRarity = PetRarity.SECRET,
+        colorHex = 0xFFFF8C00,
+        emoji = "\u26A1",
+        category = DiceCategory.BURST
+    ),
+    BURST_100000(
+        id = "burst_100000",
+        displayName = "BURST DICE (100K)",
+        description = "Instant 100,000 rolls — no coins rewarded",
+        price = 100_000_000_000L,
+        rollsCount = 100000,
+        minRarity = PetRarity.COMMON,
+        maxRarity = PetRarity.SECRET,
+        colorHex = 0xFFFF8C00,
+        emoji = "\u26A1",
+        category = DiceCategory.BURST
     );
 
     fun toColor(): Color = Color(colorHex)
 
+    val isBurstDice: Boolean get() = id.startsWith("burst_")
+
     companion object {
         fun fromId(id: String): SpecialDiceType? = entries.find { it.id == id }
-        val strengthOrder: List<SpecialDiceType> = listOf(SUPER_DICE, MYTHIC, LEGENDARY, ASCENDANT, REFINING, BANISHING)
+        val strengthOrder: List<SpecialDiceType> = listOf(SUPER_DICE, MYTHIC, GILDED_DICE, BURST_100000, BURST_10000, BURST_1000, BURST_100, LEGENDARY, ASCENDANT, REFINING, BANISHING)
     }
 }
 
@@ -120,9 +185,11 @@ data class SpecialDice(
 data class ActiveDiceEffect(
     val diceTypeId: String = "",
     val rollsRemaining: Int = 0,
-    val rollsTotal: Int = 0
+    val rollsTotal: Int = 0,
+    val category: String = "luck"
 ) {
     val diceType: SpecialDiceType? get() = SpecialDiceType.fromId(diceTypeId)
+    val diceCategory: DiceCategory get() = try { DiceCategory.valueOf(category.uppercase()) } catch (_: Exception) { DiceCategory.LUCK }
     val progress: Float get() = if (rollsTotal > 0) rollsRemaining.toFloat() / rollsTotal.toFloat() else 0f
 }
 

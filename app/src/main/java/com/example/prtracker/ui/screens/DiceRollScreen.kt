@@ -101,16 +101,25 @@ import kotlin.math.roundToInt
 
 private enum class DiceRollState { IDLE, ROLLING, REVEAL, PET_DETAIL }
 
+private fun formatRolls(value: Int): String {
+    return when {
+        value >= 1_000_000 -> String.format("%.1fM", value / 1_000_000.0)
+        value >= 1_000     -> String.format("%.1fK", value / 1_000.0)
+        else              -> value.toString()
+    }
+}
+
 private fun formatCoins(value: Long): String {
     fun f(v: Long, u: Long, s: String) =
         if (v % u == 0L) "${v / u}$s" else String.format("%.3f$s", v / u.toDouble())
     return when {
-        value >= 1_000_000_000_000_000L -> f(value, 1_000_000_000_000_000L, "Qd")
-        value >= 1_000_000_000_000L     -> f(value, 1_000_000_000_000L, "T")
-        value >= 1_000_000_000L         -> f(value, 1_000_000_000L, "B")
-        value >= 1_000_000L             -> f(value, 1_000_000L, "M")
-        value >= 1_000L                 -> f(value, 1_000L, "K")
-        else                            -> value.toString()
+        value >= 1_000_000_000_000_000_000L -> f(value, 1_000_000_000_000_000_000L, "Qn")
+        value >= 1_000_000_000_000_000L     -> f(value, 1_000_000_000_000_000L, "Q")
+        value >= 1_000_000_000_000L         -> f(value, 1_000_000_000_000L, "T")
+        value >= 1_000_000_000L             -> f(value, 1_000_000_000L, "B")
+        value >= 1_000_000L                 -> f(value, 1_000_000L, "M")
+        value >= 1_000L                     -> f(value, 1_000L, "K")
+        else                                -> value.toString()
     }
 }
 
@@ -487,7 +496,7 @@ fun DiceRollScreen(
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
                                 Text(
-                                    text = "${dtype.emoji} ${effect.rollsRemaining}",
+                                    text = "${dtype.emoji} ${formatRolls(effect.rollsRemaining)}",
                                     color = dc,
                                     style = MaterialTheme.typography.labelSmall,
                                     fontFamily = FontFamily.Monospace
@@ -829,7 +838,7 @@ private fun DiceView(
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = when {
-                rollsLeft > 0 -> "ROLL ($rollsLeft LEFT)"
+                rollsLeft > 0 -> "ROLL (${formatRolls(rollsLeft)} LEFT)"
                 else -> "TAP TO ROLL"
             },
             color = diceColor,

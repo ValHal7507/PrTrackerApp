@@ -64,17 +64,51 @@ class StorageManager(private val context: Context) {
         return Pair(full.exercises, full.goals)
     }
 
+    private val speciesRenames = mapOf(
+        "dumbbell_01" to "biceps_01"
+    )
+
     fun loadPetData(): PetStorageData {
         return try {
             if (petFile.exists()) {
                 val json = petFile.readText()
-                gson.fromJson(json, PetStorageData::class.java) ?: PetStorageData()
+                val data = gson.fromJson(json, PetStorageData::class.java) ?: PetStorageData()
+                migrateSpeciesIds(data)
             } else {
                 PetStorageData()
             }
         } catch (e: Exception) {
             PetStorageData()
         }
+    }
+
+    private fun migrateSpeciesIds(data: PetStorageData): PetStorageData {
+        var changed = false
+        val migratedInventory = data.petInventory.map { pet ->
+            val newId = speciesRenames[pet.speciesId]
+            if (newId != null) {
+                changed = true
+                pet.copy(speciesId = newId)
+            } else pet
+        }
+        val migratedCounts = data.speciesTierCounts.entries.associate { (key, value) ->
+            val oldPrefix = key.substringBeforeLast('_')
+            val suffix = key.substringAfterLast('_')
+            val newPrefix = speciesRenames[oldPrefix]
+            if (newPrefix != null) {
+                changed = true
+                "${newPrefix}_$suffix" to value
+            } else key to value
+        }
+        if (changed) {
+            val migrated = data.copy(
+                petInventory = migratedInventory,
+                speciesTierCounts = migratedCounts
+            )
+            savePetData(migrated)
+            return migrated
+        }
+        return data
     }
 
     fun savePetData(data: PetStorageData) {

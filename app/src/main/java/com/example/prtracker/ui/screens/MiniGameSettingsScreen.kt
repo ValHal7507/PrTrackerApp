@@ -121,7 +121,7 @@ fun MiniGameSettingsScreen(
                     val autoSellSet = miniGameSettings.autoSellRarities
 
                     PetRarity.entries
-                        .filter { it != PetRarity.EXCLUSIVE && it != PetRarity.SECRET }
+                        .filter { it != PetRarity.SECRET }
                         .forEach { rarity ->
                             val isOn = autoSellSet.contains(rarity.name)
                             val rarityColor = Color(rarity.colorHex)
@@ -191,37 +191,6 @@ fun MiniGameSettingsScreen(
                             Spacer(modifier = Modifier.height(6.dp))
                         }
 
-                    Spacer(modifier = Modifier.height(6.dp))
-                    // EXCLUSIVE row — always excluded
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0xFF7B35C1).copy(alpha = 0.3f))
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(10.dp)
-                                .clip(RoundedCornerShape(50))
-                                .background(Color(PetRarity.EXCLUSIVE.colorHex))
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = "EXCLUSIVE",
-                            color = TextSecondary,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(
-                            text = "ALWAYS KEPT",
-                            color = TextSecondary.copy(alpha = 0.6f),
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
                     Spacer(modifier = Modifier.height(6.dp))
                     // SECRET row — always excluded
                     Row(

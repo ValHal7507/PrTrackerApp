@@ -163,7 +163,7 @@ object PetCatalog {
 
         // SECRET (1 in 2,000,000 — handled specially)
         PetSpecies("ozzy_01", "Ozzy", PetRarity.SECRET, "\uD83E\uDD8A"),
-        PetSpecies("dumbbell_01", "Dumbbell", PetRarity.SECRET, "\uD83D\uDD29")
+        PetSpecies("biceps_01", "Biceps", PetRarity.SECRET, "\uD83D\uDCAA")
     )
 
     fun speciesForRarity(rarity: PetRarity): List<PetSpecies> =
