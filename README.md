@@ -14,6 +14,8 @@ A personal record tracking app for exercises. Log reps, hold times, runs, and bo
 - **10-Tier Rank System** — Calisthenics progression evaluator across 10 tiers from RAW_CARBON to SYSTEM_OVERRIDE
 - **Exercise History** — Scrollable list of every logged entry across all exercises with PR color coding
 - **Workout History** — Review past completed workout sessions with per-exercise breakdowns
+- **Pet Dice Roll** — Roll for random pets across 10 rarity tiers (COMMON → SECRET), collect, fuse, sell, and equip pets for XP bonuses
+- **Pet Upgrades** — Upgrade luck, coin multiplier, roll speed, lucky rolls, equip slots, and multi-roll with earned coins
 - **Appearance customization** — 6 preset themes or create your own with per-system accent colors
 - **Notifications** — Morning training reminders, goal progress alerts, evening daily reviews, and weekly summaries
 - **Data Export/Import** — Share your data as a JSON file between devices via Android's share sheet
@@ -35,7 +37,7 @@ A personal record tracking app for exercises. Log reps, hold times, runs, and bo
 
 ## Data Storage
 
-All data is stored as a single JSON file (`prs.json`) on the device — no database, no server. The app supports file-based export and import for backing up or transferring data between devices.
+All data is stored as JSON files on the device — no database, no server. App data is in `prs.json` and pet data is in `pets.json`. The app supports file-based export and import for backing up or transferring data between devices.
 
 ## Building
 
