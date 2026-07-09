@@ -111,7 +111,7 @@ private fun formatRolls(value: Int): String {
 
 private fun formatCoins(value: Long): String {
     fun f(v: Long, u: Long, s: String) =
-        if (v % u == 0L) "${v / u}$s" else String.format("%.3f$s", v / u.toDouble())
+        if (v % u == 0L) "${v / u}$s" else String.format("%.2f$s", v / u.toDouble())
     return when {
         value >= 1_000_000_000_000_000_000L -> f(value, 1_000_000_000_000_000_000L, "Qn")
         value >= 1_000_000_000_000_000L     -> f(value, 1_000_000_000_000_000L, "Q")

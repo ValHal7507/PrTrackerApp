@@ -32,7 +32,6 @@ data class WorkoutSession(
 ) {
     fun elapsedMs(now: Long): Long {
         if (startedAt == 0L) return 0L
-        val totalPaused = if (isPaused) pausedDurationMs + (now - pausedSinceMs).coerceAtLeast(0L) else pausedDurationMs
-        return (now - startedAt - totalPaused).coerceAtLeast(0L)
+        return (now - startedAt).coerceAtLeast(0L)
     }
 }

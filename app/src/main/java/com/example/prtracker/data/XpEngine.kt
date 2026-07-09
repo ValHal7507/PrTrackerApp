@@ -34,7 +34,7 @@ object XpEngine {
     /** XP needed to advance FROM `level` TO `level + 1`. Max level = 200. */
     fun xpNeededForNextLevel(level: Int): Long {
         if (level >= MAX_LEVEL) return Long.MAX_VALUE
-        return (450.0 * level.toDouble().pow(0.87)).toLong()
+        return (1112.0 * level.toDouble().pow(1.5)).toLong()
     }
 
     const val MAX_LEVEL = 200

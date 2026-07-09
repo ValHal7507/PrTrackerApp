@@ -20,8 +20,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -32,7 +30,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -74,18 +71,12 @@ fun WorkoutSessionScreen(
     val activePotion by viewModel.activePotionType.collectAsState()
     var tick by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(session?.isPaused) {
-        if (session?.isPaused == false && session?.isCompleted == false) {
+    LaunchedEffect(session?.isCompleted) {
+        if (session?.isCompleted == false) {
             while (true) {
                 kotlinx.coroutines.delay(100L)
                 tick++
             }
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            viewModel.autoPauseWorkout()
         }
     }
 
@@ -146,10 +137,7 @@ fun WorkoutSessionScreen(
                     .padding(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = {
-                    viewModel.autoPauseWorkout()
-                    navController.popBackStack()
-                }) {
+                IconButton(onClick = { navController.popBackStack() }) {
                     Icon(Icons.Default.ArrowBack, "Back", tint = RunningMagenta)
                 }
                 Spacer(modifier = Modifier.weight(1f))
@@ -226,73 +214,35 @@ fun WorkoutSessionScreen(
                 item { Spacer(modifier = Modifier.height(8.dp)) }
             }
 
-            Row(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    .padding(16.dp)
             ) {
-                Box(modifier = Modifier.weight(1f)) {
-                    Button(
-                        onClick = { viewModel.togglePauseWorkout() },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent)
-                    ) {
-                        Icon(
-                            imageVector = if (session!!.isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
-                            contentDescription = if (session!!.isPaused) "Resume" else "Pause",
-                            tint = RunningMagenta,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (session!!.isPaused) "RESUME" else "PAUSE",
-                            color = RunningMagenta,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .matchParentSize()
-                            .border(
-                                androidx.compose.foundation.BorderStroke(1.dp, RunningMagenta.copy(alpha = 0.5f)),
-                                RoundedCornerShape(12.dp)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {}
+                Button(
+                    onClick = { viewModel.finishWorkout() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent)
+                ) {
+                    Text(
+                        text = "FINISH",
+                        color = RunningMagenta,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp
+                    )
                 }
-
-                Box(modifier = Modifier.weight(1f)) {
-                    Button(
-                        onClick = {
-                            viewModel.finishWorkout()
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent)
-                    ) {
-                        Text(
-                            text = "FINISH",
-                            color = RunningMagenta,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 12.sp
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .matchParentSize()
-                            .border(
-                                androidx.compose.foundation.BorderStroke(1.dp, RunningMagenta),
-                                RoundedCornerShape(12.dp)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {}
-                }
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .border(
+                            androidx.compose.foundation.BorderStroke(1.dp, RunningMagenta),
+                            RoundedCornerShape(12.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {}
             }
         }
     }

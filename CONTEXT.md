@@ -207,7 +207,7 @@ Prtracker/
                     ├── RunHistoryScreen.kt    # Run history with all-time records, entry list with delete, and LIVE RUN button
                     ├── WorkoutPresetsScreen.kt # Workout preset list with reorder mode, create/edit sheet, pin/delete actions
                     ├── WorkoutPresetDetailScreen.kt # Full-screen preset detail view with exercises, edit/delete actions
-                    ├── WorkoutSessionScreen.kt # Live workout execution with timer, per-set input, pause/resume/finish
+                    ├── WorkoutSessionScreen.kt # Live workout execution with timer, per-set input, finish
                     ├── PresetAnalysisScreen.kt # Movement pattern analysis with pentagonal radar chart and exercise classification (VP/HP/CL/VPush/HPush)
                     ├── RestGameScreen.kt        # Protein Catch mini-game: catch falling scoops to fill cup, servings score, chaos bursts
                     ├── DiceRollScreen.kt        # Pet dice roll mini-game: rarity/pity system, fusion, selling, multi-roll, gear icon
@@ -256,7 +256,7 @@ Helper extension: `Exercise.parsedDifficulty(): ExerciseDifficulty` converts the
 
 ### `XpEngine` (`data/XpEngine.kt`)
 
-XP/level system with Pokémon GO–style exponential scaling (`xpNeededForNextLevel(n) = floor(1000 × n^1.5)`, max level 200).
+XP/level system with Pokémon GO–style exponential scaling (`xpNeededForNextLevel(n) = floor(1112 × n^1.5)`, max level 200, ~250M total XP to reach max level).
 
 | Difficulty | XP per rep | XP per second (hold) |
 | ---------- | ---------- | -------------------- |
@@ -574,7 +574,7 @@ data class WorkoutSession(
 }
 ```
 
-`WorkoutSession` tracks a live workout execution: started timestamp, accumulated pause duration (`pausedDurationMs`), current pause start time (`pausedSinceMs`), pause flag, completion flag, and per-exercise progress. `elapsedMs(now)` correctly excludes all paused time (including the current pause if `isPaused` is true). All fields have Gson-safe defaults for backward compatibility.
+`WorkoutSession` tracks a live workout execution: started timestamp, and per-exercise progress. `elapsedMs(now)` returns `(now - startedAt)` — the timer runs continuously once started with no pause support. Legacy pause fields (`pausedDurationMs`, `pausedSinceMs`, `isPaused`) are retained with Gson-safe defaults for backward compatibility but are no longer used.
 
 ---
 
@@ -823,7 +823,7 @@ PresetDetailScreen ──"START WORKOUT" button (no active session)──→ cre
 PresetDetailScreen ──"RESUME WORKOUT" button (active session)──→ navigates to WorkoutSessionScreen
 
 PresetDetailScreen ──"FINISH WORKOUT"──→ logs all sets as PREntries, marks session complete, pops back to PresetDetailScreen
-PresetDetailScreen ──back button──→ auto-pauses workout, pops back
+PresetDetailScreen ──back button──→ pops back
 Dashboard ──"EXERCISE HISTORY" button──→ ExerciseHistoryScreen
 Dashboard ──"WORKOUT HISTORY" button──→ WorkoutHistoryScreen
 
@@ -831,9 +831,8 @@ ExerciseHistoryScreen ──back──→ pops back to Dashboard
 WorkoutHistoryScreen ──back──→ pops back to Dashboard
 WorkoutHistoryScreen ──delete (double confirm)──→ removes from history
 
-WorkoutSessionScreen ──PAUSE/RESUME──→ toggles isPaused, accumulates pausedDurationMs on resume
 WorkoutSessionScreen ──FINISH──→ logs all completed sets as individual PREntries, marks session complete
-WorkoutSessionScreen ──back/leave──→ auto-pauses workout (DisposableEffect onDispose), preserves session for resume
+WorkoutSessionScreen ──back──→ pops back (timer keeps running, session preserved for resume)
 ```
 
 Bottom navigation bar is visible on `home`, `dashboard`, `presets`, `goals`, `weight`, `calendar`, `settings`, and `preset_detail/{presetId}` routes. It is hidden on `live_run`, `workout_session`, and other detail routes. FAB is visible on `dashboard` and `weight` screens.
@@ -1303,21 +1302,18 @@ val TierSystemOverride = Color(0xFFB026FF)  // Neon purple (same as SuccessPurpl
 - **Animated background:** `GridBackground()` composable.
 - **Full-screen layout:** No bottom nav bar (hidden via `showBottomBar` logic).
 - **Color scheme:** All interactive elements use hardcoded `Color(0xFFFF2D78)` (magenta), not `LocalAppearance`.
-- **Title row:** Back arrow (auto-pauses workout), preset name in `headlineMedium` Monospace magenta.
-- **Live timer:** Elapsed time displayed as `HH:MM:SS` in 48sp Monospace magenta, updated every 100ms via a `tick` counter that drives recomposition. Actual elapsed time computed via `session.elapsedMs(System.currentTimeMillis())` which correctly excludes all paused time.
+- **Title row:** Back arrow, preset name in `headlineMedium` Monospace magenta.
+- **Live timer:** Elapsed time displayed as `HH:MM:SS` in 48sp Monospace magenta, updated every 100ms via a `tick` counter that drives recomposition. Actual elapsed time computed via `session.elapsedMs(System.currentTimeMillis())` which returns `(now - startedAt)`. The timer runs continuously once the workout starts — there is no pause functionality.
 - **Sets remaining counter:** Label below timer showing total sets left across all exercises.
 - **Live XP earned:** Label below sets remaining showing actual XP earned so far from completed sets, recomputed on each set completion via `XpEngine.xpForEntry()` using each exercise's difficulty.
 - **Exercise list:** `LazyColumn` of `SessionExerciseCard` composables. Each card shows:
   - Exercise name with index number, completed/total sets count, and total reps/seconds summary
   - Per-set rows: "Set 1", "Set 2", etc. Completed sets show value in green (`GoalComplete`) with a checkmark icon. Incomplete sets show an `OutlinedTextField` (56dp height, `titleMedium`) for numeric input and a checkmark `IconButton` to submit.
   - Card border turns green when all sets are complete.
-- **Control buttons:** Two side-by-side buttons at the bottom:
-  - **PAUSE/RESUME** — Outlined magenta border, toggles `viewModel.togglePauseWorkout()` which sets `isPaused` and records `pausedSinceMs`; on resume, accumulated time is added to `pausedDurationMs`
-  - **FINISH** — Solid magenta border, calls `viewModel.finishWorkout()` which logs each completed set as an individual `PREntry` (with note "From workout: {presetName}") to the matching exercise, marks session as completed, and saves
-- **Auto-pause on leave:** `DisposableEffect(Unit)` calls `viewModel.autoPauseWorkout()` on dispose (back button, bottom nav, app background). This preserves the session for resume later.
+- **Control buttons:** A single full-width `FINISH` button at the bottom with solid magenta border, calls `viewModel.finishWorkout()` which logs each completed set as an individual `PREntry` (with note "From workout: {presetName}") to the matching exercise, marks session as completed, and saves.
 - **No active workout state:** If `session == null` or `isCompleted == true`, shows "NO ACTIVE WORKOUT" / "WORKOUT COMPLETE" centered text with "GO BACK" button.
-- **Active workout banner on WorkoutPresetsScreen:** Shows "ACTIVE WORKOUT" with status ("PAUSED — tap to resume" or "IN PROGRESS — tap to continue"), tappable to navigate to the active session.
-- **Navigation:** Accessed via START/RESUME WORKOUT button on `WorkoutPresetDetailScreen`. Back button auto-pauses and returns to preset detail.
+- **Active workout banner on WorkoutPresetsScreen:** Shows "ACTIVE WORKOUT" with status ("IN PROGRESS — tap to continue"), tappable to navigate to the active session.
+- **Navigation:** Accessed via START/RESUME WORKOUT button on `WorkoutPresetDetailScreen`. Back button pops back to preset detail; the timer keeps running and the session is preserved for resume.
 
 ### 8.21 ExerciseHistoryScreen
 
@@ -1588,10 +1584,8 @@ Extends `AndroidViewModel(application)` for app context access.
 | `savePresets()`                                     | Persists current workout presets to JSON                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `startWorkout(preset: WorkoutPreset)`               | Creates a new `WorkoutSession` from preset exercises (maps `PresetExercise` to `SessionExerciseProgress` with target value, isHold, totalSets), sets `activeSession`, persists to JSON                                                                                                                                                                                                                                                                                                                                                                         |
 | `completeSetInSession(exerciseIndex, value)`        | Adds a `SessionSetEntry` to the specified exercise's completed sets + saves                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `togglePauseWorkout()`                              | Toggles `isPaused`; on pause records `pausedSinceMs = now`; on resume accumulates `pausedDurationMs += (now - pausedSinceMs)`                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `finishWorkout()`                                   | Logs each completed set as a separate `PREntry` (note: "From workout: {presetName}") to the matching exercise, computes `xpEarned` per set (with equipped pet multiplier and active potion multiplier), moves exercise to front, marks session completed, saves completed session to `_workoutHistory`, calls `recalculateTotalXp()` + saves                                                                                                                                                                                                                                                                               |
 | `discardWorkout()`                                  | Sets `activeSession = null`, discards all progress                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `autoPauseWorkout()`                                | If session is active and not already paused/completed, sets `isPaused = true` and records `pausedSinceMs` (called on screen leave)                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `deleteWorkoutHistoryEntry(sessionId: String)`      | Removes a session from `_workoutHistory` by ID + saves                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `setPendingImportJson(json: String?)`               | Stores incoming JSON string for the import screen to consume                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `consumePendingImportJson(): String?`               | Returns and clears the pending import JSON (one-shot handoff)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
@@ -2004,6 +1998,10 @@ Deleted in v1.1 (File-Based Import/Export feature). Replaced by `SyncExportScree
 53. **Proportional LUCK/TIER Consumption** — `burstRoll()` now uses local counters (`luckRollsRemaining`, `tierRollsRemaining`) to track LUCK and TIER dice consumption proportionally during burst. Effects stop mid-burst when their counter hits 0. Write-back subtracts the actual consumed amount from each effect's `rollsRemaining`.
 
 54. **Burst Roll 100k Batch Cap** — `rollDiceMultiple()` now caps burst rolls at 100,000 per tap. If more rolls remain, the BURST effect's `rollsRemaining` is decremented by the batch size (via `copy(rollsRemaining = remaining)`) instead of being removed, so subsequent taps continue where the last batch left off. Only removes the effect when `rollsRemaining` hits 0.
+
+55. **XP Formula Rebalance** — Changed XP level formula from `450 * level^0.87` (~4.8M total to max) to `1112 * level^1.5` (~250M total to max level 200). Same exponential curve shape as the original `n^1.5` design, scaled up. Affects `XpEngine.xpNeededForNextLevel()` — single-line change, all derived functions (`cumulativeXpToReach`, `levelFromTotalXp`, `xpInCurrentLevel`, `xpNeededForCurrentLevelUp`) update automatically.
+
+56. **Workout Timer QOL — No Pause** — Removed pause/resume functionality from `WorkoutSessionScreen`. Timer now runs continuously once a workout starts, showing total elapsed time. Removed `togglePauseWorkout()` and `autoPauseWorkout()` from `PRViewModel`. Removed PAUSE/RESUME button (FINISH is now full-width). Removed `DisposableEffect` auto-pause on screen leave. Simplified `WorkoutSession.elapsedMs()` to `(now - startedAt)` — legacy pause fields retained for Gson backward compat but no longer used. Updated active workout banner to always show "IN PROGRESS".
 
 ---
 

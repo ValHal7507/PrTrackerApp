@@ -1312,22 +1312,6 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
         saveSessionData()
     }
 
-    fun togglePauseWorkout() {
-        val session = _activeSession.value ?: return
-        val now = System.currentTimeMillis()
-        _activeSession.value = if (session.isPaused) {
-            val extraPause = now - session.pausedSinceMs
-            session.copy(
-                isPaused = false,
-                pausedDurationMs = session.pausedDurationMs + extraPause,
-                pausedSinceMs = 0L
-            )
-        } else {
-            session.copy(isPaused = true, pausedSinceMs = now)
-        }
-        saveSessionData()
-    }
-
     fun finishWorkout() {
         val session = _activeSession.value ?: return
         val now = System.currentTimeMillis()
@@ -1376,13 +1360,6 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
 
     fun discardWorkout() {
         _activeSession.value = null
-        saveSessionData()
-    }
-
-    fun autoPauseWorkout() {
-        val session = _activeSession.value ?: return
-        if (session.isCompleted || session.isPaused) return
-        _activeSession.value = session.copy(isPaused = true, pausedSinceMs = System.currentTimeMillis())
         saveSessionData()
     }
 

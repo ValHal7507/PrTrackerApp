@@ -214,24 +214,15 @@ fun WorkoutPresetsScreen(
                                 color = Color(0xFFFF2D78),
                                 fontFamily = FontFamily.Monospace
                             )
-                            if (activeSession!!.isPaused) {
-                                Text(
-                                    text = "PAUSED — tap to resume",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = TextSecondary,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                            } else {
-                                Text(
-                                    text = "IN PROGRESS — tap to continue",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = TextSecondary,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                            }
+                            Text(
+                                text = "IN PROGRESS — tap to continue",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary,
+                                fontFamily = FontFamily.Monospace
+                            )
                         }
                         Text(
-                            text = "RESUME →",
+                            text = "CONTINUE →",
                             style = MaterialTheme.typography.labelLarge,
                             color = Color(0xFFFF2D78),
                             fontFamily = FontFamily.Monospace
