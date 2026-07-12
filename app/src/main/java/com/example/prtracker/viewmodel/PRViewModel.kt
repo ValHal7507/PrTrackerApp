@@ -1351,7 +1351,7 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
         _exercises.value = exercises
         recalculateTotalXp()
         if (hasXpDouble) consumePotion(PotionType.XP_DOUBLE)
-        val completedSession = session.copy(isCompleted = true, isPaused = false, xpEarned = totalEarned)
+        val completedSession = session.copy(isCompleted = true, isPaused = false, xpEarned = totalEarned, endedAt = System.currentTimeMillis())
         _activeSession.value = completedSession
         _workoutHistory.value = listOf(completedSession) + _workoutHistory.value
         saveSessionData()
@@ -1361,6 +1361,100 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
     fun discardWorkout() {
         _activeSession.value = null
         saveSessionData()
+    }
+
+    fun startLiveWorkout() {
+        _activeSession.value = WorkoutSession(
+            id = java.util.UUID.randomUUID().toString(),
+            presetId = "live",
+            presetName = "LIVE WORKOUT",
+            startedAt = System.currentTimeMillis(),
+            isCompleted = false,
+            exercises = emptyList()
+        )
+        saveSessionData()
+    }
+
+    fun addExerciseToLiveWorkout(exerciseId: String) {
+        val session = _activeSession.value ?: return
+        val exercise = _exercises.value.find { it.id == exerciseId } ?: return
+        val alreadyAdded = session.exercises.any { it.exerciseName == exercise.name }
+        if (alreadyAdded) return
+        val isHold = exercise.type == "hold"
+        val updatedExercises = session.exercises + SessionExerciseProgress(
+            exerciseName = exercise.name,
+            targetValue = 0,
+            isHold = isHold,
+            totalSets = 0,
+            completedSets = emptyList()
+        )
+        _activeSession.value = session.copy(exercises = updatedExercises)
+        saveSessionData()
+    }
+
+    fun removeExerciseFromLiveWorkout(exerciseIndex: Int) {
+        val session = _activeSession.value ?: return
+        if (exerciseIndex < 0 || exerciseIndex >= session.exercises.size) return
+        val ex = session.exercises[exerciseIndex]
+        if (ex.completedSets.isNotEmpty()) return
+        val updatedExercises = session.exercises.toMutableList().also { it.removeAt(exerciseIndex) }
+        _activeSession.value = session.copy(exercises = updatedExercises)
+        saveSessionData()
+    }
+
+    fun appendSetToLiveSession(exerciseIndex: Int, value: Int) {
+        val session = _activeSession.value ?: return
+        if (exerciseIndex < 0 || exerciseIndex >= session.exercises.size) return
+        val ex = session.exercises[exerciseIndex]
+        val updatedEx = ex.copy(
+            completedSets = ex.completedSets + SessionSetEntry(value = value),
+            totalSets = ex.completedSets.size + 1
+        )
+        val updatedExercises = session.exercises.toMutableList().also { it[exerciseIndex] = updatedEx }
+        _activeSession.value = session.copy(exercises = updatedExercises)
+        saveSessionData()
+    }
+
+    fun deleteEntryFromLiveSession(exerciseIndex: Int, setIndex: Int) {
+        val session = _activeSession.value ?: return
+        if (exerciseIndex < 0 || exerciseIndex >= session.exercises.size) return
+        val ex = session.exercises[exerciseIndex]
+        if (setIndex < 0 || setIndex >= ex.completedSets.size) return
+        val removedValue = ex.completedSets[setIndex].value
+        val updatedSets = ex.completedSets.toMutableList().also { it.removeAt(setIndex) }
+        val updatedEx = ex.copy(completedSets = updatedSets, totalSets = updatedSets.size)
+        val updatedExercises = session.exercises.toMutableList().also { it[exerciseIndex] = updatedEx }
+        _activeSession.value = session.copy(exercises = updatedExercises)
+        val exercise = _exercises.value.find { it.name == ex.exerciseName }
+        if (exercise != null) {
+            val entryToRemove = exercise.entries.lastOrNull { it.value == removedValue }
+            if (entryToRemove != null) {
+                deleteEntry(exercise.id, entryToRemove.id)
+            }
+        }
+        saveSessionData()
+    }
+
+    fun isLiveWorkout(): Boolean = _activeSession.value?.presetId == "live"
+
+    fun finishLiveWorkout() {
+        val session = _activeSession.value ?: return
+        var totalEarned = 0L
+        for (exProgress in session.exercises) {
+            if (exProgress.completedSets.isEmpty()) continue
+            val exercise = _exercises.value.find { it.name == exProgress.exerciseName } ?: continue
+            totalEarned += exercise.entries.take(exProgress.completedSets.size).sumOf { it.xpEarned }
+        }
+        val completedSession = session.copy(
+            isCompleted = true,
+            isPaused = false,
+            xpEarned = totalEarned,
+            endedAt = System.currentTimeMillis()
+        )
+        _activeSession.value = completedSession
+        _workoutHistory.value = listOf(completedSession) + _workoutHistory.value
+        saveSessionData()
+        saveData()
     }
 
     fun deleteWorkoutHistoryEntry(sessionId: String) {

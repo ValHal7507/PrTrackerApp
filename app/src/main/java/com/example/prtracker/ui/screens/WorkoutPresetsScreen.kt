@@ -186,14 +186,22 @@ fun WorkoutPresetsScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             if (activeSession != null && !activeSession!!.isCompleted) {
+                val isLive = activeSession!!.presetId == "live"
+                val bannerColor = if (isLive) appearance.systemAccentColor else Color(0xFFFF2D78)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFFFF2D78).copy(alpha = 0.15f))
-                        .border(1.dp, Color(0xFFFF2D78).copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                        .clickable { navController.navigate(Routes.workoutSession(activeSession!!.presetId)) }
+                        .background(bannerColor.copy(alpha = 0.15f))
+                        .border(1.dp, bannerColor.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                        .clickable {
+                            if (isLive) {
+                                navController.navigate(Routes.LIVE_WORKOUT)
+                            } else {
+                                navController.navigate(Routes.workoutSession(activeSession!!.presetId))
+                            }
+                        }
                         .padding(12.dp)
                 ) {
                     Row(
@@ -203,15 +211,15 @@ fun WorkoutPresetsScreen(
                         Icon(
                             imageVector = Icons.Default.PlayArrow,
                             contentDescription = null,
-                            tint = Color(0xFFFF2D78),
+                            tint = bannerColor,
                             modifier = Modifier.size(24.dp)
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "ACTIVE WORKOUT",
+                                text = if (isLive) "ACTIVE LIVE WORKOUT" else "ACTIVE WORKOUT",
                                 style = MaterialTheme.typography.titleMedium,
-                                color = Color(0xFFFF2D78),
+                                color = bannerColor,
                                 fontFamily = FontFamily.Monospace
                             )
                             Text(
@@ -224,10 +232,49 @@ fun WorkoutPresetsScreen(
                         Text(
                             text = "CONTINUE →",
                             style = MaterialTheme.typography.labelLarge,
-                            color = Color(0xFFFF2D78),
+                            color = bannerColor,
                             fontFamily = FontFamily.Monospace
                         )
                     }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            if (activeSession == null || activeSession!!.isCompleted) {
+                Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                    Button(
+                        onClick = {
+                            viewModel.startLiveWorkout()
+                            navController.navigate(Routes.LIVE_WORKOUT)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = appearance.systemAccentColor,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "START LIVE WORKOUT",
+                            color = appearance.systemAccentColor,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .border(
+                                BorderStroke(1.dp, Brush.linearGradient(listOf(appearance.systemAccentColor, Color.Transparent))),
+                                RoundedCornerShape(12.dp)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) { }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
             }

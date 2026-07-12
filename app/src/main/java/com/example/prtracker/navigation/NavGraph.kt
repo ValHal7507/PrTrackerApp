@@ -41,6 +41,7 @@ import com.example.prtracker.ui.screens.PetUpgradesScreen
 import com.example.prtracker.ui.screens.PetInventoryScreen
 import com.example.prtracker.ui.screens.MiniGameSettingsScreen
 import com.example.prtracker.ui.screens.PetIndexScreen
+import com.example.prtracker.ui.screens.LiveWorkoutScreen
 import com.example.prtracker.viewmodel.PRViewModel
 
 object Routes {
@@ -78,6 +79,7 @@ object Routes {
     const val DICE_INVENTORY = "dice_inventory"
     const val MINI_GAME_SETTINGS = "mini_game_settings"
     const val PET_INDEX = "pet_index"
+    const val LIVE_WORKOUT = "live_workout"
 
     fun logEntry(exerciseId: String) = "log_entry/$exerciseId"
     fun detail(exerciseId: String) = "detail/$exerciseId"
@@ -280,6 +282,12 @@ fun PrTrackerNavGraph(
             arguments = listOf(navArgument("presetId") { type = NavType.StringType })
         ) {
             WorkoutSessionScreen(
+                viewModel = viewModel,
+                navController = navController
+            )
+        }
+        composable(Routes.LIVE_WORKOUT) {
+            LiveWorkoutScreen(
                 viewModel = viewModel,
                 navController = navController
             )

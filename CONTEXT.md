@@ -208,6 +208,7 @@ Prtracker/
                     ├── WorkoutPresetsScreen.kt # Workout preset list with reorder mode, create/edit sheet, pin/delete actions
                     ├── WorkoutPresetDetailScreen.kt # Full-screen preset detail view with exercises, edit/delete actions
                     ├── WorkoutSessionScreen.kt # Live workout execution with timer, per-set input, finish
+                    ├── LiveWorkoutScreen.kt    # Freestyle live workout: exercise dropdown, per-entry logging, delete entries, auto-discard on empty leave
                     ├── PresetAnalysisScreen.kt # Movement pattern analysis with pentagonal radar chart and exercise classification (VP/HP/CL/VPush/HPush)
                     ├── RestGameScreen.kt        # Protein Catch mini-game: catch falling scoops to fill cup, servings score, chaos bursts
                     ├── DiceRollScreen.kt        # Pet dice roll mini-game: rarity/pity system, fusion, selling, multi-roll, gear icon
@@ -550,6 +551,7 @@ data class SessionExerciseProgress(
     val exerciseName: String = "",
     val targetValue: Int = 0,
     val isHold: Boolean = false,
+    val isUntilFailure: Boolean = false,
     val totalSets: Int = 0,
     val completedSets: List<SessionSetEntry> = emptyList()
 )
@@ -564,17 +566,18 @@ data class WorkoutSession(
     val pausedSinceMs: Long = 0L,
     val isPaused: Boolean = false,
     val isCompleted: Boolean = false,
+    val endedAt: Long = 0L,
+    val xpEarned: Long = 0L,
     val exercises: List<SessionExerciseProgress> = emptyList()
 ) {
     fun elapsedMs(now: Long): Long {
         if (startedAt == 0L) return 0L
-        val totalPaused = if (isPaused) pausedDurationMs + (now - pausedSinceMs).coerceAtLeast(0L) else pausedDurationMs
-        return (now - startedAt - totalPaused).coerceAtLeast(0L)
+        return (now - startedAt).coerceAtLeast(0L)
     }
 }
 ```
 
-`WorkoutSession` tracks a live workout execution: started timestamp, and per-exercise progress. `elapsedMs(now)` returns `(now - startedAt)` — the timer runs continuously once started with no pause support. Legacy pause fields (`pausedDurationMs`, `pausedSinceMs`, `isPaused`) are retained with Gson-safe defaults for backward compatibility but are no longer used.
+`WorkoutSession` tracks a live workout execution: started timestamp, and per-exercise progress. `elapsedMs(now)` returns `(now - startedAt)` — the timer runs continuously once started with no pause support. Legacy pause fields (`pausedDurationMs`, `pausedSinceMs`, `isPaused`) are retained with Gson-safe defaults for backward compatibility but are no longer used. `endedAt` records when the workout was finished; used by `WorkoutHistoryScreen` to display actual workout duration instead of time-since-start. `xpEarned` stores the total XP rewarded for the workout.
 
 ---
 
@@ -693,6 +696,7 @@ Separate from `StorageData` to avoid rewriting the full app JSON on every pet ac
 | `"preset_detail/{presetId}"`   | `WorkoutPresetDetailScreen`  | `presetId: String`   |
 | `"preset_analysis/{presetId}"` | `PresetAnalysisScreen`       | `presetId: String`   |
 | `"workout_session/{presetId}"` | `WorkoutSessionScreen`       | `presetId: String`   |
+| `"live_workout"`              | `LiveWorkoutScreen`          | None                 |
 | `"exercise_history"`           | `ExerciseHistoryScreen`      | None                 |
 | `"workout_history"`            | `WorkoutHistoryScreen`       | None                 |
 | `"rest_game"`                  | `RestGameScreen`             | None                 |
@@ -721,6 +725,7 @@ Routes without helper functions (accessed via const vals directly):
 
 ```kotlin
 Routes.LIVE_RUN           // = "live_run"
+Routes.LIVE_WORKOUT       // = "live_workout"
 Routes.APPEARANCE         // = "appearance"
 Routes.DICE_SHOP          // = "dice_shop"
 Routes.DICE_INVENTORY     // = "dice_inventory"
@@ -833,9 +838,17 @@ WorkoutHistoryScreen ──delete (double confirm)──→ removes from history
 
 WorkoutSessionScreen ──FINISH──→ logs all completed sets as individual PREntries, marks session complete
 WorkoutSessionScreen ──back──→ pops back (timer keeps running, session preserved for resume)
+
+PresetsScreen ──"START LIVE WORKOUT" button (no active session)──→ creates live session, navigates to LiveWorkoutScreen
+LiveWorkoutScreen ──dropdown──→ adds exercise to session
+LiveWorkoutScreen ──tap card──→ expand input, log entry
+LiveWorkoutScreen ──delete entry──→ removes entry from session + exercise log
+LiveWorkoutScreen ──FINISH──→ sums xpEarned from entries, marks session complete, pops back
+LiveWorkoutScreen ──back (no entries)──→ auto-discards empty session
+LiveWorkoutScreen ──back (has entries)──→ session preserved for resume
 ```
 
-Bottom navigation bar is visible on `home`, `dashboard`, `presets`, `goals`, `weight`, `calendar`, `settings`, and `preset_detail/{presetId}` routes. It is hidden on `live_run`, `workout_session`, and other detail routes. FAB is visible on `dashboard` and `weight` screens.
+Bottom navigation bar is visible on `home`, `dashboard`, `presets`, `goals`, `weight`, `calendar`, `settings`, and `preset_detail/{presetId}` routes. It is hidden on `live_run`, `live_workout`, `workout_session`, and other detail routes. FAB is visible on `dashboard` and `weight` screens.
 
 ---
 
@@ -1315,6 +1328,27 @@ val TierSystemOverride = Color(0xFFB026FF)  // Neon purple (same as SuccessPurpl
 - **Active workout banner on WorkoutPresetsScreen:** Shows "ACTIVE WORKOUT" with status ("IN PROGRESS — tap to continue"), tappable to navigate to the active session.
 - **Navigation:** Accessed via START/RESUME WORKOUT button on `WorkoutPresetDetailScreen`. Back button pops back to preset detail; the timer keeps running and the session is preserved for resume.
 
+### 8.21 LiveWorkoutScreen
+
+- **Animated background:** `GridBackground()` composable.
+- **Full-screen layout:** No bottom nav bar (hidden via `showBottomBar` logic).
+- **Color scheme:** All interactive elements use `LocalAppearance.current` colors (system accent), not hardcoded.
+- **Title row:** Back arrow, "LIVE WORKOUT" title in `headlineMedium` Monospace with system accent color.
+- **Live timer:** Elapsed time displayed as `HH:MM:SS` in 48sp Monospace, updated every 100ms via a `tick` counter. Timer runs continuously once started.
+- **Exercise dropdown:** Always-visible `GlowingCard` with `DropdownMenu` (replaced buggy `ExposedDropdownMenuBox`). Shows "SELECT EXERCISE" label and "TAP TO SELECT" placeholder. Tapping opens a dropdown of available exercises (sorted alphabetically, excluding already-added exercises). Selecting an exercise adds it to the session.
+- **Exercise cards:** `LazyColumn` of `LiveWorkoutExerciseCard` composables. Each card shows:
+  - Exercise name with type badge (REPS/HOLD)
+  - Entry count and last logged value
+  - Delete icon (trash) when no entries logged yet
+  - Collapsed view: shows last 5 entries with value, time, and delete button per entry
+  - Expanded view: shows all logged entries with delete buttons above the input controls
+  - Input controls: decrement/increment buttons, numeric text field, checkmark submit button, optional note field
+  - Delete entry: tapping trash removes the entry from both the session display and the exercise log
+- **Empty state:** "ADD EXERCISES TO START" centered text when no exercises added.
+- **FINISH button:** Full-width at bottom, enabled only when at least one entry has been logged. Calls `finishLiveWorkout()` which sums `xpEarned` from all logged entries, marks session completed, and saves to history.
+- **Auto-discard:** `DisposableEffect` on screen leave — if no entries were logged, the session is automatically discarded. If entries exist, session persists for resume.
+- **Navigation:** Accessed via "START LIVE WORKOUT" button on `WorkoutPresetsScreen` (only shown when no active session). Back button pops back to presets screen.
+
 ### 8.21 ExerciseHistoryScreen
 
 - **Animated background:** `GridBackground()` composable.
@@ -1586,6 +1620,13 @@ Extends `AndroidViewModel(application)` for app context access.
 | `completeSetInSession(exerciseIndex, value)`        | Adds a `SessionSetEntry` to the specified exercise's completed sets + saves                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `finishWorkout()`                                   | Logs each completed set as a separate `PREntry` (note: "From workout: {presetName}") to the matching exercise, computes `xpEarned` per set (with equipped pet multiplier and active potion multiplier), moves exercise to front, marks session completed, saves completed session to `_workoutHistory`, calls `recalculateTotalXp()` + saves                                                                                                                                                                                                                                                                               |
 | `discardWorkout()`                                  | Sets `activeSession = null`, discards all progress                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `startLiveWorkout()`                                | Creates a new `WorkoutSession` with `presetId = "live"` and empty exercises list, sets `activeSession`, persists to JSON                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `addExerciseToLiveWorkout(exerciseId: String)`      | Adds a `SessionExerciseProgress` for the matching exercise to the live session (deduplicates by name), persists to JSON                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `removeExerciseFromLiveWorkout(exerciseIndex: Int)` | Removes exercise from live session by index (only if no entries logged yet), persists to JSON                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `appendSetToLiveSession(exerciseIndex: Int, value: Int)` | Adds a `SessionSetEntry` to the specified exercise's completed sets in the live session + saves                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `deleteEntryFromLiveSession(exerciseIndex: Int, setIndex: Int)` | Removes a `SessionSetEntry` from the live session by index, finds and deletes the matching `PREntry` from the exercise (most recent entry with same value), recalculates total XP + saves                                                                                                                                                                                                                                                                                                                                                                      |
+| `isLiveWorkout(): Boolean`                          | Returns true if `activeSession.value?.presetId == "live"`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `finishLiveWorkout()`                               | Sums `xpEarned` from all logged entries across session exercises, marks session completed with `endedAt` timestamp, saves to `_workoutHistory`, persists to JSON                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `deleteWorkoutHistoryEntry(sessionId: String)`      | Removes a session from `_workoutHistory` by ID + saves                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `setPendingImportJson(json: String?)`               | Stores incoming JSON string for the import screen to consume                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `consumePendingImportJson(): String?`               | Returns and clears the pending import JSON (one-shot handoff)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |

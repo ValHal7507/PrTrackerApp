@@ -59,8 +59,13 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private fun formatElapsed(workout: WorkoutSession): String {
-    val totalMs = workout.elapsedMs(System.currentTimeMillis())
+private fun formatElapsed(workout: WorkoutSession): String? {
+    if (workout.isCompleted && workout.endedAt == 0L) return null
+    val totalMs = if (workout.isCompleted && workout.endedAt > 0L) {
+        workout.endedAt - workout.startedAt
+    } else {
+        workout.elapsedMs(System.currentTimeMillis())
+    }
     val totalSecs = totalMs / 1000
     val hours = totalSecs / 3600
     val mins = (totalSecs % 3600) / 60
@@ -253,11 +258,13 @@ fun WorkoutHistoryScreen(
                                             style = MaterialTheme.typography.labelSmall,
                                             color = TextSecondary
                                         )
-                                        Text(
-                                            text = formatElapsed(workout),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = TextSecondary
-                                        )
+                                        formatElapsed(workout)?.let { duration ->
+                                            Text(
+                                                text = duration,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = TextSecondary
+                                            )
+                                        }
                                         Text(
                                             text = "${workout.exercises.size} exercises",
                                             style = MaterialTheme.typography.labelSmall,

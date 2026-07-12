@@ -27,6 +27,7 @@ data class WorkoutSession(
     val pausedSinceMs: Long = 0L,
     val isPaused: Boolean = false,
     val isCompleted: Boolean = false,
+    val endedAt: Long = 0L,
     val xpEarned: Long = 0L,
     val exercises: List<SessionExerciseProgress> = emptyList()
 ) {
