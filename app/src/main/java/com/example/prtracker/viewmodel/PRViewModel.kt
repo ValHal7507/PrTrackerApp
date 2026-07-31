@@ -1063,7 +1063,8 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
                 _equippedPetIds.value,
                 _diceInventory.value,
                 _activeDiceEffects.value,
-                _miniGameSettings.value
+                _miniGameSettings.value,
+                _speciesTierCounts.value
             )
         }
     }
@@ -1489,9 +1490,11 @@ class PRViewModel(application: Application) : AndroidViewModel(application) {
                 lastDiceRollTimestamp = _lastDiceRollTimestamp.value,
                 coins = _coins.value,
                 petUpgrades = _petUpgrades.value,
+                equippedPetIds = _equippedPetIds.value,
                 diceInventory = _diceInventory.value,
                 activeDiceEffects = _activeDiceEffects.value,
-                miniGameSettings = _miniGameSettings.value
+                miniGameSettings = _miniGameSettings.value,
+                speciesTierCounts = _speciesTierCounts.value
             )
         }
     }

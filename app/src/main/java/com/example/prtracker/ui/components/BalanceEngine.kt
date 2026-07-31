@@ -36,6 +36,8 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.prtracker.data.Exercise
+import com.example.prtracker.data.XpEngine
+import com.example.prtracker.data.parsedDifficulty
 import com.example.prtracker.ui.theme.GoalComplete
 import com.example.prtracker.ui.theme.PinnedAccentSecondary
 import com.example.prtracker.ui.theme.PrimaryAccent
@@ -49,27 +51,50 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 
-fun mapExercisesToVectors(exercises: List<Exercise>): Map<String, Float> {
-    val vectorMap = mapOf(
-        "VP" to listOf("pull-up", "pullup", "chin-up", "chinup", "muscle-up", "muscleup"),
-        "HP" to listOf("front lever", "row"),
-        "VPush" to listOf("handstand", "hspu", "dip"),
-        "HPush" to listOf("push-up", "pushup", "planche"),
-        "CL" to listOf("l-sit", "lsit", "leg raise", "dragon flag")
-    )
+private val vectorOrder = listOf("VP", "HP", "VPush", "HPush", "CL")
 
-    val result = mutableMapOf<String, Float>()
-    for ((vector, keywords) in vectorMap) {
-        val matchedExercises = exercises.filter { ex ->
-            keywords.any { keyword -> ex.name.lowercase().contains(keyword) }
-        }
-        val total = matchedExercises.fold(0f) { acc, ex ->
-            val pr = ex.entries.maxOfOrNull { it.value } ?: 0
-            acc + min(10f, pr / 10f)
-        }.coerceAtMost(10f)
-        result[vector] = total
+private val vectorKeywords: Map<String, List<String>> = mapOf(
+    "VP" to listOf(
+        "pull up", "pullup", "pull-up", "chin up", "chinup", "chin-up",
+        "muscle up", "muscle-up", "lat", "typewriter"
+    ),
+    "HP" to listOf(
+        "front lever", "row", "australian", "horizontal pull",
+        "rear delt", "face pull", "curl", "bicep"
+    ),
+    "VPush" to listOf(
+        "handstand", "hspu", "overhead", "pike", "shoulder press",
+        "military press", "dip"
+    ),
+    "HPush" to listOf(
+        "push up", "pushup", "push-up", "chest", "bench", "ring push",
+        "archer push", "planche"
+    ),
+    "CL" to listOf(
+        "l-sit", "lsit", "leg raise", "dragon flag", "plank", "hollow",
+        "squat", "lunge", "deadlift", "bridge"
+    )
+)
+
+private fun exerciseScore(ex: Exercise): Float {
+    val pr = ex.entries.maxOfOrNull { it.value } ?: 0
+    if (pr <= 0) return 0f
+    val xp = XpEngine.xpForEntry(pr, ex.type, ex.parsedDifficulty())
+    return min(10f, xp / 1000f)
+}
+
+fun mapExercisesToVectors(exercises: List<Exercise>): Map<String, Float> {
+    val totals = mutableMapOf(
+        "VP" to 0f, "HP" to 0f, "VPush" to 0f, "HPush" to 0f, "CL" to 0f
+    )
+    for (ex in exercises) {
+        val lower = ex.name.lowercase()
+        val vector = vectorOrder.firstOrNull { v ->
+            vectorKeywords.getValue(v).any { lower.contains(it) }
+        } ?: "CL"
+        totals[vector] = min(10f, totals.getValue(vector) + exerciseScore(ex))
     }
-    return result
+    return totals
 }
 
 fun computeAsymmetryIndex(vectors: Map<String, Float>): Float {
@@ -90,6 +115,8 @@ fun BiomechanicalRadarCard(exercises: List<Exercise>) {
     val ai = remember(vectors) { computeAsymmetryIndex(vectors) }
     val hasData = vectors.values.any { it > 0f }
     val isAsymmetric = ai > 25f
+    val pullTotal = (vectors["VP"] ?: 0f) + (vectors["HP"] ?: 0f)
+    val pushTotal = (vectors["VPush"] ?: 0f) + (vectors["HPush"] ?: 0f)
 
     val infiniteTransition = rememberInfiniteTransition(label = "aberration")
     val aberrationOffset by infiniteTransition.animateFloat(
@@ -218,6 +245,11 @@ fun BiomechanicalRadarCard(exercises: List<Exercise>) {
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (isAsymmetric) PinnedAccentSecondary else GoalComplete
                 )
+                Text(
+                    text = "PULL %.1f · PUSH %.1f".format(pullTotal, pushTotal),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
                 if (isAsymmetric) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
@@ -227,12 +259,6 @@ fun BiomechanicalRadarCard(exercises: List<Exercise>) {
                     )
                 }
                 Spacer(modifier = Modifier.height(4.dp))
-                val vp = vectors["VP"] ?: 0f
-                val hp = vectors["HP"] ?: 0f
-                val vpush = vectors["VPush"] ?: 0f
-                val hpush = vectors["HPush"] ?: 0f
-                val pullTotal = vp + hp
-                val pushTotal = vpush + hpush
                 val actionHint = if (pullTotal < pushTotal) {
                     "Increase Pull training"
                 } else {
@@ -242,6 +268,11 @@ fun BiomechanicalRadarCard(exercises: List<Exercise>) {
                     text = actionHint,
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
+                )
+                Text(
+                    text = "SCORE = PR XP ÷ 1000 · EASY 20 · MEDIUM 50 · HARD 120 · EXTREME 300",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondary.copy(alpha = 0.6f)
                 )
             } else {
                 Text(
