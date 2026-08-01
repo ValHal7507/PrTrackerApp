@@ -12,8 +12,6 @@
 /captures
 .externalNativeBuild
 .cxx
-.opencode
-*.md
 !README.md
 !CONTEXT.md
 !XP.md
