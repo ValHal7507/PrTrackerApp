@@ -218,9 +218,6 @@ class MainActivity : ComponentActivity() {
 
     private fun scheduleMorningReminder() {
         val workManager = WorkManager.getInstance(this)
-        val existingWork = workManager.getWorkInfosByTag(MorningReminderWorker.WORK_TAG).get()
-        if (existingWork.isNotEmpty()) return
-
         val settings = StorageManager(this).loadFullData().settings
         val now = System.currentTimeMillis()
         val calendar = Calendar.getInstance().apply {
@@ -241,7 +238,7 @@ class MainActivity : ComponentActivity() {
 
         workManager.enqueueUniquePeriodicWork(
             "morning_reminder",
-            ExistingPeriodicWorkPolicy.KEEP,
+            ExistingPeriodicWorkPolicy.REPLACE,
             workRequest
         )
     }
@@ -268,16 +265,13 @@ class MainActivity : ComponentActivity() {
 
         workManager.enqueueUniquePeriodicWork(
             "daily_goal_notification",
-            ExistingPeriodicWorkPolicy.KEEP,
+            ExistingPeriodicWorkPolicy.REPLACE,
             workRequest
         )
     }
 
     private fun scheduleEveningReview() {
         val workManager = WorkManager.getInstance(this)
-        val existingWork = workManager.getWorkInfosByTag(EveningReviewWorker.WORK_TAG).get()
-        if (existingWork.isNotEmpty()) return
-
         val settings = StorageManager(this).loadFullData().settings
         val now = System.currentTimeMillis()
         val calendar = Calendar.getInstance().apply {
@@ -298,15 +292,13 @@ class MainActivity : ComponentActivity() {
 
         workManager.enqueueUniquePeriodicWork(
             "evening_review",
-            ExistingPeriodicWorkPolicy.KEEP,
+            ExistingPeriodicWorkPolicy.REPLACE,
             workRequest
         )
     }
 
     private fun scheduleWeeklySummary() {
         val workManager = WorkManager.getInstance(this)
-        val existingWork = workManager.getWorkInfosByTag(WeeklySummaryWorker.WORK_TAG).get()
-        if (existingWork.isNotEmpty()) return
 
         val now = System.currentTimeMillis()
         val calendar = Calendar.getInstance().apply {
@@ -328,7 +320,7 @@ class MainActivity : ComponentActivity() {
 
         workManager.enqueueUniquePeriodicWork(
             "weekly_summary",
-            ExistingPeriodicWorkPolicy.KEEP,
+            ExistingPeriodicWorkPolicy.REPLACE,
             workRequest
         )
     }

@@ -1819,7 +1819,7 @@ A private composable inside CalendarScreen.kt. Shows a "MOVEMENT ANALYSIS" label
 class MorningReminderWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params)
 ```
 
-Scheduled by `WorkManager` at 8:00 AM daily. On each run:
+Scheduled by `WorkManager` at 8:00 AM daily. Uses `ExistingPeriodicWorkPolicy.REPLACE` to recompute the initial delay on every app open, ensuring clock-time accuracy. On each run:
 
 1. Reads exercises and rest days from `prs.json` directly via `StorageManager.loadFullData()`
 2. Checks whether the user has already logged any entries today (any `PREntry` with today's date)
@@ -1843,7 +1843,7 @@ Scheduled by `WorkManager` at 8:00 AM daily. On each run:
 class GoalNotificationWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params)
 ```
 
-Scheduled by `WorkManager` at **8:30 AM** daily (changed from original 9:00 AM). On each run:
+Scheduled by `WorkManager` at **8:30 AM** daily (changed from original 9:00 AM). Uses `ExistingPeriodicWorkPolicy.REPLACE` to recompute the initial delay on every app open. On each run:
 
 1. Reads exercises and goals from `prs.json` directly via `StorageManager`
 2. Creates the `pr_tracker_goals` notification channel if it doesn't exist
@@ -1858,7 +1858,7 @@ Scheduled by `WorkManager` at **8:30 AM** daily (changed from original 9:00 AM).
 class EveningReviewWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params)
 ```
 
-Scheduled by `WorkManager` at 9:30 PM daily. On each run:
+Scheduled by `WorkManager` at 9:30 PM daily. Uses `ExistingPeriodicWorkPolicy.REPLACE` to recompute the initial delay on every app open, ensuring clock-time accuracy. On each run:
 
 1. Reads exercises, rest days from `prs.json` directly via `StorageManager.loadFullData()`
 2. Determines scenario and sends the appropriate notification:
@@ -1893,7 +1893,7 @@ Scheduled by `WorkManager` at 9:30 PM daily. On each run:
 class WeeklySummaryWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params)
 ```
 
-Scheduled by `WorkManager` every Sunday at 22:00. On each run:
+Scheduled by `WorkManager` every Sunday at 22:00. Uses `ExistingPeriodicWorkPolicy.REPLACE` to recompute the initial delay on every app open. On each run:
 
 1. Reads exercises, goals, and weight entries from `prs.json` directly via `StorageManager`
 2. Computes weekly summary stats from the past 7 days:
@@ -2043,6 +2043,8 @@ Deleted in v1.1 (File-Based Import/Export feature). Replaced by `SyncExportScree
 55. **XP Formula Rebalance** — Changed XP level formula from `450 * level^0.87` (~4.8M total to max) to `1112 * level^1.5` (~250M total to max level 200). Same exponential curve shape as the original `n^1.5` design, scaled up. Affects `XpEngine.xpNeededForNextLevel()` — single-line change, all derived functions (`cumulativeXpToReach`, `levelFromTotalXp`, `xpInCurrentLevel`, `xpNeededForCurrentLevelUp`) update automatically.
 
 56. **Workout Timer QOL — No Pause** — Removed pause/resume functionality from `WorkoutSessionScreen`. Timer now runs continuously once a workout starts, showing total elapsed time. Removed `togglePauseWorkout()` and `autoPauseWorkout()` from `PRViewModel`. Removed PAUSE/RESUME button (FINISH is now full-width). Removed `DisposableEffect` auto-pause on screen leave. Simplified `WorkoutSession.elapsedMs()` to `(now - startedAt)` — legacy pause fields retained for Gson backward compat but no longer used. Updated active workout banner to always show "IN PROGRESS".
+
+57. **Notification Scheduling Fix — Clock-Time Accuracy** — Fixed notifications arriving at random times instead of the user-set schedule. Root cause: `WorkManager`'s `PeriodicWorkRequest.setInitialDelay` only applies the delay to the first execution; subsequent runs happen every 24h from the previous execution's completion time, not from a fixed clock time. On top of that, `scheduleMorningReminder()` and `scheduleEveningReview()` had early-return guards (`if (existingWork.isNotEmpty()) return`) that prevented rescheduling on app reopen, so the initial delay was never recomputed and the drift compounded over days. Fix: removed the early-return guards from `scheduleMorningReminder()` and `scheduleEveningReview()`, and changed `ExistingPeriodicWorkPolicy.KEEP` to `REPLACE` in all four scheduling methods (`scheduleMorningReminder`, `scheduleGoalReminders`, `scheduleEveningReview`, `scheduleWeeklySummary`). This ensures every app open recomputes a fresh initial delay to the next target clock time, keeping notifications on schedule. All changes are internal to `MainActivity.kt`.
 
 ---
 
